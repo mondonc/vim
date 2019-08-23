@@ -5,7 +5,7 @@ set rtp+=~/.vim/bundle/Vundle.vim
 call vundle#begin()
 Plugin 'VundleVim/Vundle.vim' " let Vundle manage Vundle, required
 Bundle 'tpope/vim-fugitive'
-"Bundle 'scrooloose/nerdtree'
+Bundle 'scrooloose/nerdtree'
 "Bundle 'jistr/vim-nerdtree-tabs'
 Bundle 'cschlueter/vim-mustang'
 Bundle 'majutsushi/tagbar'
@@ -134,3 +134,8 @@ let g:flake8_max_line_length=160
 
 filetype plugin on
 let g:pydiction_location = '/home/mondonna/.vim/bundle/Pydiction/complete-dict'
+
+if has("autocmd")
+  au BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$")
+    \| exe "normal! g'\"" | endif
+endif
