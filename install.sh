@@ -12,4 +12,4 @@ ln -s "${DIR_VIM_GIT}/vimrc" "${HOME}"/.vimrc
 
 vim +PluginInstall +qall
 
-sudo apt-get install pyflakes python-pyflakes flake8 python-flake8 vulture
+sudo apt-get -y install pyflakes python-pyflakes flake8 python-flake8 vulture
