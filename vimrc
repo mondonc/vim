@@ -110,9 +110,11 @@ colorscheme mustang
 highlight Normal ctermbg=NONE
 highlight nonText ctermbg=NONE
 
+set statusline=%<%m\ %f\ %y\ %{&ff}\ \%=\ row:%l\ of\ %L\ col:%c%V\ %P
 set statusline+=%#warningmsg#
 set statusline+=%{SyntasticStatuslineFlag()}
 set statusline+=%*
+
 
 let g:syntastic_python_checkers = ['pyflakes', 'flake8', 'vulture', 'pep8']
 "let g:syntastic_python_checkers = ['pylint']
