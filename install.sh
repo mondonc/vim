@@ -12,10 +12,12 @@ ln -s "${DIR_VIM_GIT}/vimrc" "${HOME}"/.vimrc
 
 vim +PluginInstall +qall
 
-sudo apt-get -y install pyflakes flake8 python-flake8 vulture
+sudo apt-get -y install pyflakes flake8 vulture
 
+mkdir -p $HOME/.config
 # Neovim compatibility
-if ![ -d .config/nvim ] ; then
+if ! [ -d .config/nvim ] ; then
     cp -r $HOME/.vim $HOME/.config/nvim
     cp -r $HOME/.vimrc $HOME/.config/nvim/init.vim
 fi
+echo "You can install and use neovim-qt if you want"
