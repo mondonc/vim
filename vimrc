@@ -156,3 +156,10 @@ noremap <C-Up> :call AdjustFontSize(1)<CR>
 noremap <C-Down> :call AdjustFontSize(-1)<CR>
 inoremap <C-Up> <Esc>:call AdjustFontSize(1)<CR>a
 inoremap <C-Down> <Esc>:call AdjustFontSize(-1)<CR>a
+
+" trigger `autoread` when files changes on disk
+set autoread
+autocmd FocusGained,BufEnter,CursorHold,CursorHoldI * if mode() != 'c' | checktime | endif
+" notification after file change
+autocmd FileChangedShellPost *
+\ echohl WarningMsg | echo "File changed on disk. Buffer reloaded." | echohl None
