@@ -12,7 +12,7 @@ ln -s "${DIR_VIM_GIT}/vimrc" "${HOME}"/.vimrc
 
 vim +PluginInstall +qall
 
-sudo apt-get -y install pyflakes flake8 vulture
+sudo apt-get -y install pyflakes3 flake8 vulture
 
 mkdir -p $HOME/.config
 # Neovim compatibility
