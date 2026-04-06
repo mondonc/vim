@@ -9,7 +9,8 @@ A unified Vim 8+ / Neovim configuration for Python/Django development. Works wit
 ├── common.vim      # Shared options (sourced by both vim and nvim)
 ├── vimrc           # Vim 8+ config (vim-plug, syntastic, NERDTree)
 ├── init.lua        # Neovim config (lazy.nvim, LSP, nvim-cmp, telescope)
-├── install.sh      # One-shot installer
+├── install.sh      # One-shot installer (./install.sh ia for AI support)
+├── ai.lua          # AI config (CodeCompanion, loaded only if enabled)
 ├── CHEATSHEET.md   # Keybindings reference
 └── .gitignore
 ```
@@ -84,6 +85,34 @@ Leader key is `Space`.
 | `gt` / `gT` | Next / previous tab | vim + nvim |
 
 See [CHEATSHEET.md](CHEATSHEET.md) for the full reference.
+
+## AI assistant (optional)
+
+AI support is **not installed by default**. To enable it:
+
+```bash
+./install.sh ia
+```
+
+This will:
+- Enable [CodeCompanion.nvim](https://github.com/olimorris/codecompanion.nvim) in Neovim
+- Prompt for your Anthropic API key (or you can export `ANTHROPIC_API_KEY` in your shell)
+
+The API key is stored locally in `~/.config/codecompanion/anthropic_key` (chmod 600) and never committed.
+
+To disable AI, remove `~/.vim/.ai-enabled` and restart Neovim.
+
+### AI key bindings (Neovim only)
+
+| Key | Action |
+|-----|--------|
+| `Space ac` | Toggle AI chat window |
+| `Space aa` | AI actions menu |
+| `Space ae` | AI inline edit (visual mode) |
+
+### Switching to local AI (Ollama)
+
+Edit `ai.lua` and change the `adapter` values from `"anthropic"` to `"ollama"`. The default Ollama model is `qwen2.5-coder:14b`.
 
 ## Colorscheme
 

@@ -26,7 +26,7 @@ if not vim.uv.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
-require("lazy").setup({
+local plugins = {
   -- Git
   "tpope/vim-fugitive",
 
@@ -165,7 +165,15 @@ require("lazy").setup({
       })
     end,
   },
-})
+}
+
+-- Chargement conditionnel de l'IA (si ./install.sh ia a été exécuté)
+local vimdir = vim.fn.fnamemodify(vim.fn.resolve(vim.fn.expand("<sfile>:p")), ":h")
+if vim.uv.fs_stat(vimdir .. "/.ai-enabled") then
+  vim.list_extend(plugins, dofile(vimdir .. "/ai.lua"))
+end
+
+require("lazy").setup(plugins)
 
 -- =============================================================================
 -- Diagnostics — loc list en bas (comme syntastic)

@@ -51,3 +51,44 @@ echo ""
 echo "=== Terminé ==="
 echo "  Vim  : lance vim, tout est prêt"
 echo "  Nvim : lance nvim, lazy.nvim installera les plugins au premier lancement"
+
+# --- IA (optionnel : ./install.sh ia) ---
+if [ "${1:-}" = "ia" ]; then
+    echo ""
+    echo "=== Activation de l'IA (CodeCompanion) ==="
+    touch "$DIR_VIM_GIT/.ai-enabled"
+
+    # Config API key
+    mkdir -p "$HOME/.config/codecompanion"
+    if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ ! -f "$HOME/.config/codecompanion/anthropic_key" ]; then
+        echo ""
+        echo "Clé API Anthropic non trouvée."
+        echo "Tu peux soit :"
+        echo "  1. Exporter ANTHROPIC_API_KEY dans ~/.bashrc"
+        echo "  2. La saisir maintenant (sera stockée dans ~/.config/codecompanion/anthropic_key)"
+        echo ""
+        read -rp "Coller ta clé API (ou Enter pour passer) : " api_key
+        if [ -n "$api_key" ]; then
+            echo "$api_key" > "$HOME/.config/codecompanion/anthropic_key"
+            chmod 600 "$HOME/.config/codecompanion/anthropic_key"
+            echo "Clé sauvegardée dans ~/.config/codecompanion/anthropic_key"
+        else
+            echo "Pas de clé configurée. Pense à exporter ANTHROPIC_API_KEY."
+        fi
+    else
+        echo "Clé API déjà configurée."
+    fi
+
+    # Réinstaller les plugins nvim avec CodeCompanion
+    echo "=== Installation des plugins IA (lazy.nvim) ==="
+    nvim --headless "+Lazy! sync" +qa
+
+    echo ""
+    echo "=== IA activée ==="
+    echo "  Space ac  — ouvrir/fermer le chat IA"
+    echo "  Space aa  — actions IA"
+    echo "  Space ae  — édition inline (en mode visuel)"
+    echo ""
+    echo "  Pour utiliser Ollama local : modifier 'adapter' dans ai.lua"
+    echo "  Pour désactiver : supprimer ~/.vim/.ai-enabled et relancer nvim"
+fi
