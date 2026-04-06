@@ -1,0 +1,12 @@
+# Plugin directories (managed by vim-plug / lazy.nvim)
+bundle/
+autoload/plug.vim
+
+# Undo history
+undodir-vim/
+undodir-nvim/
+
+# Swap / backup (disabled but just in case)
+*.swp
+*.swo
+*~
