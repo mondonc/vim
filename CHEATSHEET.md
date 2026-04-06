@@ -145,3 +145,34 @@ Thème : **tokyonight** (night par défaut).
 | `Ctrl+l` | Rafraîchir l'écran |
 | `:noh` | Enlever le surlignage de recherche |
 | `u` / `Ctrl+r` | Undo / Redo (persistant entre sessions) |
+
+## IA — CodeCompanion (nvim uniquement, si activé via `./install.sh ia`)
+
+| Raccourci | Mode | Action |
+|-----------|------|--------|
+| `Espace ac` | normal / visuel | Ouvrir/fermer le chat IA |
+| `Espace aa` | normal / visuel | Menu d'actions IA |
+| `Espace ae` | visuel | Édition inline par l'IA |
+
+### Utilisation du chat
+
+- Ouvre le chat avec `Espace ac`, tape ta question, `Enter` pour envoyer
+- Tu peux sélectionner du code en visuel puis `Espace ac` pour envoyer le code dans le chat
+- `Espace aa` propose des actions prédéfinies : expliquer, refactorer, corriger, documenter, tests…
+
+### Édition inline
+
+1. Sélectionne du code en mode visuel (`v` ou `V`)
+2. `Espace ae` puis tape ton instruction (ex: "ajoute des docstrings")
+3. L'IA modifie le code directement dans le buffer
+
+### Changer d'adapter
+
+Par défaut : **Claude** (Anthropic API). Pour utiliser **Ollama** local, modifier `adapter = "ollama"` dans `ai.lua`.
+
+### Désactiver l'IA
+
+```bash
+rm ~/.vim/.ai-enabled
+# puis relancer nvim
+```
