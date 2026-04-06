@@ -96,6 +96,7 @@ local plugins = {
         ensure_installed = {
           "python", "lua", "bash", "html", "css",
           "javascript", "json", "yaml", "toml", "dockerfile", "make",
+          "markdown", "markdown_inline",
         },
       })
     end,
