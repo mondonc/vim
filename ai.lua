@@ -36,47 +36,47 @@ return {
             require("codecompanion").setup({
                 -- ─── Adapters ────────────────────────────────────
                 adapters = {
-                    http = {
-                        -- Claude via API directe
-                        anthropic = function()
-                            return require("codecompanion.adapters").extend("anthropic", {
-                                env = {
-                                    api_key = get_anthropic_key(),
+                    -- Claude via API directe
+                    anthropic = function()
+                        return require("codecompanion.adapters").extend("anthropic", {
+                            env = {
+                                api_key = get_anthropic_key(),
+                            },
+                            schema = {
+                                model = {
+                                    default = "claude-sonnet-4-20250514",
                                 },
-                                schema = {
-                                    model = {
-                                        -- claude-sonnet-4-20250514 est le modèle par défaut
-                                        -- Changer ici pour opus/haiku selon besoin
-                                        default = "claude-sonnet-4-20250514",
-                                    },
-                                },
-                            })
-                        end,
+                            },
+                        })
+                    end,
 
-                        -- Ollama local
-                        ollama = function()
-                            return require("codecompanion.adapters").extend("ollama", {
-                                schema = {
-                                    model = {
-                                        default = "qwen2.5-coder:14b",
-                                    },
+                    -- Ollama via Docker sur l'hôte
+                    -- Sur l'hôte : export OLLAMA_URL=http://127.0.0.1:11434
+                    -- En VM KVM : utilise le bridge virbr0 par défaut
+                    ollama = function()
+                        return require("codecompanion.adapters").extend("ollama", {
+                            env = {
+                                url = os.getenv("OLLAMA_URL") or "http://192.168.122.1:11434",
+                            },
+                            schema = {
+                                model = {
+                                    default = "gemma4:26b",
                                 },
-                            })
-                        end,
-                    },
+                            },
+                        })
+                    end,
                 },
 
                 -- ─── Stratégies (quel adapter pour quoi) ─────────
-                -- Pour switcher : changer "anthropic" ↔ "ollama"
                 strategies = {
                     chat = {
-                        adapter = "anthropic",
+                        adapter = "ollama",
                     },
                     inline = {
-                        adapter = "anthropic",
+                        adapter = "ollama",
                     },
                     cmd = {
-                        adapter = "anthropic",
+                        adapter = "ollama",
                     },
                 },
 
@@ -93,7 +93,6 @@ return {
                     vim.notify("Usage: :AISwitch anthropic | ollama", vim.log.levels.WARN)
                     return
                 end
-                -- On reconfigure les stratégies à la volée
                 require("codecompanion").setup({
                     strategies = {
                         chat = { adapter = target },
