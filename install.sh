@@ -36,6 +36,23 @@ ln -sfn "$DIR_VIM_GIT/init.lua" "$HOME/.config/nvim/init.lua"
 echo "=== Installation des plugins Neovim (lazy.nvim) ==="
 nvim --headless "+Lazy! sync" +qa
 
+# --- Alias vim/vi → nvim dans .bashrc ---
+echo "=== Alias vim/vi → nvim ==="
+if command -v nvim &>/dev/null; then
+    for rc in "$HOME/.bashrc" "$HOME/.profile"; do
+        if [ -f "$rc" ]; then
+            # Supprime les anciennes versions de ces alias s'ils existent
+            sed -i '/^alias vim=.*nvim/d' "$rc"
+            sed -i '/^alias vi=.*nvim/d' "$rc"
+            echo 'alias vim="nvim"' >> "$rc"
+            echo 'alias vi="nvim"'  >> "$rc"
+            echo "  ✓ Alias ajoutés dans $rc"
+        fi
+    done
+else
+    echo "  ⚠ nvim non trouvé dans le PATH, alias ignorés"
+fi
+
 # --- Outils Python ---
 echo "=== Installation des outils Python via pipx ==="
 sudo apt-get -y install pipx
