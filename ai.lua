@@ -59,6 +59,7 @@ return {
                                     model       = { default = AI_MODEL },
                                     num_ctx     = { default = 32768 },
                                     temperature = { default = 0.1 },
+                                    num_thread  = { default = 20 },
                                 },
                             })
                         end,
@@ -124,13 +125,38 @@ return {
                 end,
                 { desc = "CodeCompanion: active model" })
 
+            -- Spinner partagé (commit + CodeCompanion)
+            local spinner       = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+            local spinner_idx   = 0
+            local spinner_timer = nil
+
+            local function start_spinner(label)
+                if spinner_timer then return end
+                spinner_idx = 0
+                spinner_timer = vim.uv.new_timer()
+                spinner_timer:start(0, 80, vim.schedule_wrap(function()
+                    spinner_idx = (spinner_idx % #spinner) + 1
+                    vim.o.statusline = " " .. spinner[spinner_idx] .. " " .. (label or "En cours…")
+                    vim.cmd("redrawstatus")
+                end))
+            end
+
+            local function stop_spinner()
+                if spinner_timer then
+                    spinner_timer:stop()
+                    spinner_timer:close()
+                    spinner_timer = nil
+                end
+                vim.o.statusline = ""
+                vim.cmd("redrawstatus")
+            end
+
             -- Générateur de message de commit
             local function open_commit_buffer(message, files)
                 local buf = vim.api.nvim_create_buf(false, true)
                 vim.bo[buf].filetype = "gitcommit"
 
                 local lines = vim.split(message, "\n")
-                -- Ajoute des instructions en commentaire
                 table.insert(lines, "")
                 table.insert(lines, "# Modifie le message ci-dessus.")
                 table.insert(lines, "# <leader>cc  — valider et commiter")
@@ -141,15 +167,15 @@ return {
                 local width  = math.floor(vim.o.columns * 0.65)
                 local height = math.min(#lines + 2, 24)
                 local win = vim.api.nvim_open_win(buf, true, {
-                    relative   = "editor",
-                    width      = width,
-                    height     = height,
-                    row        = math.floor((vim.o.lines - height) / 2),
-                    col        = math.floor((vim.o.columns - width) / 2),
-                    style      = "minimal",
-                    border     = "rounded",
-                    title      = " Message de commit ",
-                    title_pos  = "center",
+                    relative  = "editor",
+                    width     = width,
+                    height    = height,
+                    row       = math.floor((vim.o.lines - height) / 2),
+                    col       = math.floor((vim.o.columns - width) / 2),
+                    style     = "minimal",
+                    border    = "rounded",
+                    title     = " Message de commit ",
+                    title_pos = "center",
                 })
 
                 -- Valider et commiter
@@ -191,21 +217,23 @@ return {
             end
 
             local function generate_and_open(diff, files)
-                vim.notify("[IA] Génération du message de commit…", vim.log.levels.INFO)
+                start_spinner("Génération du message de commit…")
                 require("plenary.curl").post(OLLAMA_URL .. "/api/generate", {
                     headers  = { ["Content-Type"] = "application/json" },
                     body     = vim.json.encode({
                         model  = AI_MODEL,
+                        options = { num_thread = 20 },
                         prompt = "Voici le diff git des fichiers sélectionnés :\n\n```diff\n"
                             .. diff
                             .. "\n```\n\n"
                             .. "Génère un message de commit conventionnel (type: description très courte) "
-                            .. "en anglais. Le message doit finir avec la mention : (with codecompanion@neovim)"
+                            .. "en anglais. Le message doit finir avec la mention : (with codecompanion@neovim). "
                             .. "Réponds uniquement avec le message de commit, sans explication.",
                         stream = false,
                     }),
                     callback = function(response)
                         vim.schedule(function()
+                            stop_spinner()
                             if response.status ~= 200 then
                                 vim.notify("[IA] Erreur : " .. tostring(response.status), vim.log.levels.ERROR)
                                 return
@@ -278,35 +306,15 @@ return {
                 }):find()
             end, { desc = "CodeCompanion: commit message generator" })
 
-            -- Spinner dans la statusline pendant la génération
-            local spinner = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
-            local spinner_idx = 0
-            local spinner_timer = nil
-
+            -- Spinner CodeCompanion (réutilise les fonctions partagées)
             vim.api.nvim_create_autocmd("User", {
-                pattern = "CodeCompanionRequestStarted",
-                callback = function()
-                    spinner_idx = 0
-                    spinner_timer = vim.uv.new_timer()
-                    spinner_timer:start(0, 80, vim.schedule_wrap(function()
-                        spinner_idx = (spinner_idx % #spinner) + 1
-                        vim.o.statusline = " " .. spinner[spinner_idx] .. " CodeCompanion generating…"
-                        vim.cmd("redrawstatus")
-                    end))
-                end,
+                pattern  = "CodeCompanionRequestStarted",
+                callback = function() start_spinner("CodeCompanion generating…") end,
             })
 
             vim.api.nvim_create_autocmd("User", {
-                pattern = "CodeCompanionRequestFinished",
-                callback = function()
-                    if spinner_timer then
-                        spinner_timer:stop()
-                        spinner_timer:close()
-                        spinner_timer = nil
-                    end
-                    vim.o.statusline = ""
-                    vim.cmd("redrawstatus")
-                end,
+                pattern  = "CodeCompanionRequestFinished",
+                callback = function() stop_spinner() end,
             })
         end,
     },
