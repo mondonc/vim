@@ -9,7 +9,8 @@ vim.g.mapleader = " "
 
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
-if not vim.uv.fs_stat(lazypath) then
+local uv = vim.uv or vim.loop
+if not uv.fs_stat(lazypath) then
     vim.fn.system({
         "git", "clone", "--filter=blob:none",
         "https://github.com/folke/lazy.nvim.git",
@@ -171,7 +172,7 @@ local plugins = {
 
 -- Chargement conditionnel de l'IA (si ./install.sh ia a été exécuté)
 local vimdir = vim.fn.fnamemodify(vim.fn.resolve(vim.fn.expand("<sfile>:p")), ":h")
-if vim.uv.fs_stat(vimdir .. "/.ai-enabled") then
+if uv.fs_stat(vimdir .. "/.ai-enabled") then
     vim.list_extend(plugins, dofile(vimdir .. "/ai.lua"))
 end
 
@@ -227,12 +228,25 @@ vim.api.nvim_create_autocmd("QuitPre", {
 -- LSP natif (vim.lsp.config, Neovim 0.11+)
 -- =============================================================================
 
-vim.lsp.config("pyright", {
-    cmd = { "pyright-langserver", "--stdio" },
-    filetypes = { "python" },
-    root_markers = { "pyproject.toml", "setup.py", "setup.cfg", ".git" },
-})
-vim.lsp.enable("pyright")
+if vim.lsp.config then
+    vim.lsp.config("pyright", {
+        cmd = { "pyright-langserver", "--stdio" },
+        filetypes = { "python" },
+        root_markers = { "pyproject.toml", "setup.py", "setup.cfg", ".git" },
+    })
+    vim.lsp.enable("pyright")
+else
+    vim.api.nvim_create_autocmd("FileType", {
+        pattern = { "python" },
+        callback = function()
+            vim.lsp.start({
+                name = "pyright",
+                cmd = { "pyright-langserver", "--stdio" },
+                root_dir = vim.fs.root(0, { "pyproject.toml", "setup.py", "setup.cfg", ".git" }),
+            })
+        end,
+    })
+end
 
 -- Keymaps LSP
 vim.api.nvim_create_autocmd("LspAttach", {
