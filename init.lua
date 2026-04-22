@@ -86,21 +86,19 @@ local plugins = {
     -- ce qui évite tout appel à setup()/install() qui crashe avec config.list nil.
     {
         "nvim-treesitter/nvim-treesitter",
-        branch = "main",
+        branch = "master",
         lazy = false,
         build = ":TSUpdate",
+
         config = function()
-            local parsers = {
-                "python", "lua", "bash", "html", "css",
-                "javascript", "json", "yaml", "toml", "dockerfile", "make",
-                "markdown", "markdown_inline",
-            }
-            vim.api.nvim_create_autocmd("FileType", {
-                pattern = parsers,
-                callback = function(ev)
-                    pcall(vim.treesitter.start, ev.buf)
-                    vim.bo[ev.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
-                end,
+            require("nvim-treesitter.configs").setup({
+                ensure_installed = {
+                    "python", "lua", "bash", "html", "css",
+                    "javascript", "json", "yaml", "toml", "dockerfile", "make",
+                    "markdown", "markdown_inline",
+                },
+                highlight = { enable = true },
+                indent    = { enable = true },
             })
         end,
     },
@@ -160,11 +158,11 @@ local plugins = {
         config = function()
             local actions = require("telescope.actions")
             require("telescope").setup({
-                defaults = {
-                    mappings = {
-                        i = { ["<CR>"] = actions.select_tab },
-                        n = { ["<CR>"] = actions.select_tab },
-                    },
+                pickers = {
+                    find_files  = { mappings = { i = { ["<CR>"] = actions.select_tab }, n = { ["<CR>"] = actions.select_tab } } },
+                    live_grep   = { mappings = { i = { ["<CR>"] = actions.select_tab }, n = { ["<CR>"] = actions.select_tab } } },
+                    buffers     = { mappings = { i = { ["<CR>"] = actions.select_tab }, n = { ["<CR>"] = actions.select_tab } } },
+                    diagnostics = { mappings = { i = { ["<CR>"] = actions.select_tab }, n = { ["<CR>"] = actions.select_tab } } },
                 },
             })
         end,
