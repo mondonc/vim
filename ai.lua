@@ -152,7 +152,7 @@ return {
             end
 
             -- Générateur de message de commit
-            local function open_commit_buffer(message, files)
+            local function open_commit_buffer(message, files, elapsed_ms)
                 local buf = vim.api.nvim_create_buf(false, true)
                 vim.bo[buf].filetype = "gitcommit"
 
@@ -161,7 +161,8 @@ return {
                 table.insert(lines, "# Modifie le message ci-dessus.")
                 table.insert(lines, "# <leader>cc  — valider et commiter")
                 table.insert(lines, "# q           — annuler")
-                table.insert(lines, "# Fichiers : " .. table.concat(files, ", "))
+                table.insert(lines, string.format("# Généré en %.1fs — Fichiers : %s",
+                    (elapsed_ms or 0) / 1000, table.concat(files, ", ")))
                 vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
                 local width  = math.floor(vim.o.columns * 0.65)
@@ -217,6 +218,7 @@ return {
             end
 
             local function generate_and_open(diff, files)
+                local t0 = vim.uv.now()
                 start_spinner("Génération du message de commit…")
                 require("plenary.curl").post(OLLAMA_URL .. "/api/generate", {
                     headers  = { ["Content-Type"] = "application/json" },
@@ -240,7 +242,7 @@ return {
                             end
                             local ok, data = pcall(vim.json.decode, response.body)
                             if ok and data and data.response then
-                                open_commit_buffer(vim.trim(data.response), files)
+                                open_commit_buffer(vim.trim(data.response), files, vim.uv.now() - t0)
                             else
                                 vim.notify("[IA] Réponse invalide.", vim.log.levels.ERROR)
                             end
