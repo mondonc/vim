@@ -79,20 +79,28 @@ local plugins = {
         config = true,
     },
 
-    -- Treesitter : version stable (pas branch = "main" dont l'API est instable)
-    -- ensure_installed gère l'auto-install, highlight/indent activés nativement.
+    -- Treesitter (branche main — nouvelle API sans configs.lua)
+    -- build = ":TSUpdate" installe les parsers (à lancer manuellement la 1ère fois
+    -- via :Lazy build nvim-treesitter si les parsers ne sont pas encore présents).
+    -- Le highlighting et l'indent utilisent l'API native Neovim (vim.treesitter),
+    -- ce qui évite tout appel à setup()/install() qui crashe avec config.list nil.
     {
         "nvim-treesitter/nvim-treesitter",
+        branch = "main",
+        lazy = false,
         build = ":TSUpdate",
         config = function()
-            require("nvim-treesitter.configs").setup({
-                ensure_installed = {
-                    "python", "lua", "bash", "html", "css",
-                    "javascript", "json", "yaml", "toml", "dockerfile", "make",
-                    "markdown", "markdown_inline",
-                },
-                highlight = { enable = true },
-                indent    = { enable = true },
+            local parsers = {
+                "python", "lua", "bash", "html", "css",
+                "javascript", "json", "yaml", "toml", "dockerfile", "make",
+                "markdown", "markdown_inline",
+            }
+            vim.api.nvim_create_autocmd("FileType", {
+                pattern = parsers,
+                callback = function(ev)
+                    pcall(vim.treesitter.start, ev.buf)
+                    vim.bo[ev.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+                end,
             })
         end,
     },
@@ -144,9 +152,9 @@ local plugins = {
         branch = "0.1.x",
         dependencies = { "nvim-lua/plenary.nvim" },
         keys = {
-            { "<leader>ff", "<cmd>Telescope find_files<CR>", desc = "Find files" },
-            { "<leader>fg", "<cmd>Telescope live_grep<CR>",  desc = "Live grep" },
-            { "<leader>fb", "<cmd>Telescope buffers<CR>",    desc = "Buffers" },
+            { "<leader>ff", "<cmd>Telescope find_files<CR>",  desc = "Find files" },
+            { "<leader>fg", "<cmd>Telescope live_grep<CR>",   desc = "Live grep" },
+            { "<leader>fb", "<cmd>Telescope buffers<CR>",     desc = "Buffers" },
             { "<leader>fd", "<cmd>Telescope diagnostics<CR>", desc = "Diagnostics" },
         },
         config = function()
