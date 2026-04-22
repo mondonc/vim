@@ -79,32 +79,20 @@ local plugins = {
         config = true,
     },
 
-    -- Treesitter (nouvelle API — branche main)
+    -- Treesitter : version stable (pas branch = "main" dont l'API est instable)
+    -- ensure_installed gère l'auto-install, highlight/indent activés nativement.
     {
         "nvim-treesitter/nvim-treesitter",
-        branch = "main",
-        lazy = false,
         build = ":TSUpdate",
         config = function()
-            local ts = require("nvim-treesitter")
-            ts.setup({})
-
-            -- Installation automatique des parsers au démarrage
-            local parsers = {
-                "python", "lua", "bash", "html", "css",
-                "javascript", "json", "yaml", "toml", "dockerfile", "make",
-                "markdown", "markdown_inline",
-            }
-            -- ts.install(parsers)
-            ts.install(parsers):wait(30000)
-
-            -- Activer highlighting et indentation automatiquement
-            vim.api.nvim_create_autocmd("FileType", {
-                pattern = parsers,
-                callback = function(ev)
-                    pcall(vim.treesitter.start, ev.buf)
-                    vim.bo[ev.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
-                end,
+            require("nvim-treesitter.configs").setup({
+                ensure_installed = {
+                    "python", "lua", "bash", "html", "css",
+                    "javascript", "json", "yaml", "toml", "dockerfile", "make",
+                    "markdown", "markdown_inline",
+                },
+                highlight = { enable = true },
+                indent    = { enable = true },
             })
         end,
     },
