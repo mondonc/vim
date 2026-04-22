@@ -1,113 +1,185 @@
 -- =============================================================================
--- ai.lua — CodeCompanion (Claude API + Ollama)
--- Chargé conditionnellement par init.lua si .ai-enabled existe
--- Retourne une liste de specs lazy.nvim
+-- ai.lua — Plugins IA : CodeCompanion + OpenCode
+-- Chargé par init.lua si ~/.vim/.ai-enabled existe
+--
+-- Modèle lu depuis ~/.vim/.ai-model (écrit par install.sh ia)
+-- Ollama tourne sur l'hôte KVM : 192.168.122.1:11434
 -- =============================================================================
 
--- Résolution de la clé API Anthropic :
--- 1. Variable d'environnement ANTHROPIC_API_KEY
--- 2. Fichier ~/.config/codecompanion/anthropic_key
-local function get_anthropic_key()
-    local key = os.getenv("ANTHROPIC_API_KEY")
-    if key and key ~= "" then return key end
-    local f = io.open(os.getenv("HOME") .. "/.config/codecompanion/anthropic_key", "r")
+local OLLAMA_URL = "http://192.168.122.1:11434"
+
+-- Lire le modèle sélectionné lors de l'installation
+-- Retourne le contenu de ~/.vim/.ai-model, ou un fallback lisible
+local function read_model()
+    local model_file = vim.fn.expand("~/.vim/.ai-model")
+    local f = io.open(model_file, "r")
     if f then
-        key = f:read("*l")
+        local model = f:read("*l")
         f:close()
-        return key
+        if model and #model > 0 then
+            return vim.trim(model)
+        end
     end
-    return nil
+    -- Si le fichier n'existe pas : avertissement et fallback
+    vim.notify(
+        "[IA] ~/.vim/.ai-model introuvable.\n"
+        .. "Relance ./install.sh ia pour sélectionner un modèle.",
+        vim.log.levels.WARN
+    )
+    return "qwen2.5-coder:14b"
 end
 
+local AI_MODEL = read_model()
+
+-- =============================================================================
 return {
+
+    -- =========================================================================
+    -- CodeCompanion — assistant IA intégré dans Neovim
+    -- https://github.com/olimorris/codecompanion.nvim
+    -- =========================================================================
     {
         "olimorris/codecompanion.nvim",
         dependencies = {
             "nvim-lua/plenary.nvim",
             "nvim-treesitter/nvim-treesitter",
         },
-        keys = {
-            { "<leader>ac", "<cmd>CodeCompanionChat Toggle<CR>", mode = { "n", "v" }, desc = "Chat IA" },
-            { "<leader>aa", "<cmd>CodeCompanionActions<CR>",     mode = { "n", "v" }, desc = "Actions IA" },
-            { "<leader>ae", "<cmd>CodeCompanion<CR>",            mode = "v",          desc = "Édition inline IA" },
-        },
-        cmd = { "CodeCompanion", "CodeCompanionChat", "CodeCompanionActions" },
         config = function()
             require("codecompanion").setup({
-                -- ─── Adapters ────────────────────────────────────
-                adapters = {
-                    -- Claude via API directe
-                    anthropic = function()
-                        return require("codecompanion.adapters").extend("anthropic", {
-                            env = {
-                                api_key = get_anthropic_key(),
-                            },
-                            schema = {
-                                model = {
-                                    default = "claude-sonnet-4-20250514",
-                                },
-                            },
-                        })
-                    end,
 
-                    -- Ollama via Docker sur l'hôte
-                    -- Sur l'hôte : export OLLAMA_URL=http://127.0.0.1:11434
-                    -- En VM KVM : utilise le bridge virbr0 par défaut
-                    ollama = function()
+                -- Adapter : Ollama sur l'hôte KVM
+                adapters = {
+                    ollama_host = function()
                         return require("codecompanion.adapters").extend("ollama", {
                             env = {
-                                url = os.getenv("OLLAMA_URL") or "http://192.168.122.1:11434",
+                                url = OLLAMA_URL,
                             },
                             schema = {
                                 model = {
-                                    default = "gemma4:26b",
+                                    default = AI_MODEL,
+                                },
+                                -- Fenêtre de contexte large pour les gros modèles
+                                num_ctx = {
+                                    default = 32768,
+                                },
+                                -- Température basse pour du code
+                                temperature = {
+                                    default = 0.1,
                                 },
                             },
                         })
                     end,
                 },
 
-                -- ─── Stratégies (quel adapter pour quoi) ─────────
+                -- Utiliser ollama_host pour toutes les stratégies
                 strategies = {
+                    chat   = { adapter = "ollama_host" },
+                    inline = { adapter = "ollama_host" },
+                    agent  = { adapter = "ollama_host" },
+                },
+
+                display = {
                     chat = {
-                        adapter = "ollama",
+                        window = {
+                            layout = "vertical", -- panneau latéral droit
+                            width  = 0.35,
+                        },
+                        -- Affiche le modèle dans le titre du buffer
+                        show_header_separator = true,
                     },
-                    inline = {
-                        adapter = "ollama",
+                    action_palette = {
+                        provider = "telescope",
                     },
-                    cmd = {
-                        adapter = "ollama",
+                    diff = {
+                        provider = "mini_diff", -- ou "default"
                     },
                 },
 
-                -- ─── Options générales ───────────────────────────
+                -- Comportement général
                 opts = {
-                    log_level = "ERROR",
+                    -- Log level pour debug : "DEBUG" | "INFO" | "WARN" | "ERROR"
+                    log_level = "WARN",
+                    -- Langue des réponses
+                    language = "French",
                 },
             })
 
-            -- Commande pour switcher rapidement entre Claude et Ollama
-            vim.api.nvim_create_user_command("AISwitch", function(opts)
-                local target = opts.args
-                if target ~= "anthropic" and target ~= "ollama" then
-                    vim.notify("Usage: :AISwitch anthropic | ollama", vim.log.levels.WARN)
-                    return
-                end
-                require("codecompanion").setup({
-                    strategies = {
-                        chat = { adapter = target },
-                        inline = { adapter = target },
-                        cmd = { adapter = target },
-                    },
-                })
-                vim.notify("IA → " .. target, vim.log.levels.INFO)
-            end, {
-                nargs = 1,
-                complete = function()
-                    return { "anthropic", "ollama" }
+            -- Raccourcis CodeCompanion
+            -- <Space>ac — ouvrir/fermer le chat
+            vim.keymap.set({ "n", "v" }, "<leader>ac",
+                "<cmd>CodeCompanionChat Toggle<CR>",
+                { desc = "CodeCompanion: chat" })
+
+            -- <Space>aa — palette d'actions (résumer, expliquer, corriger…)
+            vim.keymap.set({ "n", "v" }, "<leader>aa",
+                "<cmd>CodeCompanionActions<CR>",
+                { desc = "CodeCompanion: actions" })
+
+            -- <Space>ae — édition inline sur la sélection visuelle
+            vim.keymap.set("v", "<leader>ae",
+                "<cmd>CodeCompanion<CR>",
+                { desc = "CodeCompanion: édition inline" })
+
+            -- <Space>am — afficher le modèle et l'URL actifs dans la cmdline
+            vim.keymap.set("n", "<leader>am",
+                function()
+                    vim.notify(
+                        string.format("[IA] Modèle : %s\n     URL    : %s", AI_MODEL, OLLAMA_URL),
+                        vim.log.levels.INFO,
+                        { title = "CodeCompanion" }
+                    )
                 end,
-                desc = "Switch IA entre Claude et Ollama",
+                { desc = "CodeCompanion: modèle actif" })
+        end,
+    },
+
+    -- =========================================================================
+    -- opencode.nvim — panneau OpenCode dans Neovim
+    -- https://github.com/sudo-tee/opencode.nvim
+    --
+    -- Nécessite que le binaire `opencode` soit dans le PATH
+    -- (installé par install.sh ia via npm install -g opencode-ai)
+    -- =========================================================================
+    {
+        "sudo-tee/opencode.nvim",
+        -- Ne charger que si opencode est installé
+        cond = function()
+            return vim.fn.executable("opencode") == 1
+        end,
+        event = "VeryLazy",
+        config = function()
+            require("opencode").setup({
+                window = {
+                    -- Panneau latéral droit, même largeur que CodeCompanion
+                    position        = "right",
+                    split_ratio     = 0.35,
+                    enter_insert    = true,
+                    hide_numbers    = true,
+                    hide_signcolumn = true,
+                },
+                -- Tuer le serveur opencode quand le dernier nvim se ferme
+                auto_kill = true,
             })
+
+            -- <Space>oc — ouvrir/fermer le panneau OpenCode
+            vim.keymap.set("n", "<leader>oc",
+                "<cmd>Opencode toggle<cr>",
+                { desc = "OpenCode: toggle panneau" })
+
+            -- <Space>os — envoyer la sélection comme contexte
+            vim.keymap.set("v", "<leader>os",
+                "<cmd>OpencodeAddSelection<cr>",
+                { desc = "OpenCode: envoyer sélection" })
+
+            -- <Space>on — nouvelle session OpenCode
+            vim.keymap.set("n", "<leader>on",
+                "<cmd>Opencode new<cr>",
+                { desc = "OpenCode: nouvelle session" })
+
+            -- <Space>ol — lister les sessions passées
+            vim.keymap.set("n", "<leader>ol",
+                "<cmd>Opencode sessions<cr>",
+                { desc = "OpenCode: sessions" })
         end,
     },
 }

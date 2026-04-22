@@ -13,3 +13,4 @@ undodir-nvim/
 
 # AI flag (local only, created by ./install.sh ia)
 .ai-enabled
+.ai-model
