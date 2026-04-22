@@ -228,8 +228,7 @@ return {
                         prompt = "Voici le diff git des fichiers sélectionnés :\n\n```diff\n"
                             .. diff
                             .. "\n```\n\n"
-                            .. "Génère un message de commit conventionnel (type: description très courte ,en une ligne) "
-                            .. "en anglais. Le message doit finir avec la mention : (with codecompanion@neovim). "
+                            .. "Génère un message de commit conventionnel (type: description très courte, en une ligne, en anglais) suivi d'une deuxieme ligne contenant : (with codecompanion@neovim). "
                             .. "Réponds uniquement avec le message de commit, sans explication.",
                         stream = false,
                     }),
