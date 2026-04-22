@@ -228,8 +228,10 @@ return {
                         prompt = "Voici le diff git des fichiers sélectionnés :\n\n```diff\n"
                             .. diff
                             .. "\n```\n\n"
-                            .. "Génère un message de commit conventionnel (type: description très courte, en une ligne, en anglais) suivi d'une deuxieme ligne contenant : (with codecompanion@neovim). "
-                            .. "Réponds uniquement avec le message de commit, sans explication.",
+                            .. "Génère un message de commit en respectant exactement ce format :\n"
+                            .. "ligne 1 : message conventionnel (type: description courte en anglais)\n"
+                            .. "ligne 2 : (with codecompanion@neovim)\n\n"
+                            .. "Réponds uniquement avec ces deux lignes, sans explication ni texte supplémentaire.",
                         stream = false,
                     }),
                     callback = function(response)
