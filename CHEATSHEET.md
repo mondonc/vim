@@ -176,3 +176,69 @@ Par défaut : **Claude** (Anthropic API). Pour utiliser **Ollama** local, modifi
 rm ~/.vim/.ai-enabled
 # puis relancer nvim
 ```
+
+## RAG — Assistant sur la codebase (nvim uniquement, si activé via `./install.sh rag`)
+
+Le RAG permet à l'IA d'interroger **ton code** : il retrouve les extraits
+pertinents d'un projet puis les envoie au modèle (celui configuré par
+`./install.sh ia`) pour qu'il réponde en s'appuyant sur ces extraits.
+
+### Raccourcis (mode normal)
+
+| Raccourci | Action |
+|-----------|--------|
+| `Espace aq` | **Q**uestion libre sur le projet (prompt) |
+| `Espace ar` | Question sur le buffer cou**r**ant + contexte projet |
+| `Espace aR` | **R**éindexer le projet courant |
+
+### Commandes
+
+| Commande | Action |
+|----------|--------|
+| `:VimRagQuery <question>` | équivalent de `Espace aq` avec argument |
+| `:VimRagIndex [path]` | indexer (par défaut le projet courant) |
+| `:VimRagStatus` | état de l'index du projet courant |
+
+### Dans la fenêtre de réponse
+
+| Raccourci | Action |
+|-----------|--------|
+| `q` / `Esc` | fermer la fenêtre |
+| `yy` | copier la réponse complète dans le presse-papiers |
+
+### Première utilisation
+
+```bash
+# 1. Pull un ou plusieurs modèles d'embedding
+docker exec ollama ollama pull mxbai-embed-large
+# (ou nomic-embed-text pour un modèle plus léger)
+
+# 2. Activer le RAG (menu interactif de choix du modèle d'embedding)
+cd ~/.vim && ./install.sh rag
+
+# 3. Indexer un projet
+cd /chemin/vers/ton/projet && vim-rag index .
+
+# 4. Lancer nvim dans le projet, appuyer sur Espace aq
+```
+
+Pour changer de modèle d'embedding plus tard : relance `./install.sh rag`.
+Les projets indexés devront être réindexés (l'outil le détecte et te le dit).
+
+### CLI en dehors de Neovim
+
+```bash
+vim-rag index <path>                         # indexer / mettre à jour
+vim-rag query "question" --project <path>    # retrieval brut en JSON
+vim-rag list                                 # projets indexés
+vim-rag status <path>                        # infos sur un index
+vim-rag clean <path>                         # supprimer un index
+```
+
+### Désactiver le RAG
+
+```bash
+rm ~/.vim/.rag-enabled
+pipx uninstall vim-rag    # optionnel
+# puis relancer nvim
+```

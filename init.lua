@@ -176,6 +176,11 @@ if uv.fs_stat(vimdir .. "/.ai-enabled") then
     vim.list_extend(plugins, dofile(vimdir .. "/ai.lua"))
 end
 
+-- Chargement conditionnel du RAG (si ./install.sh rag a été exécuté)
+if uv.fs_stat(vimdir .. "/.rag-enabled") then
+    vim.list_extend(plugins, dofile(vimdir .. "/rag.lua"))
+end
+
 require("lazy").setup(plugins)
 
 -- =============================================================================

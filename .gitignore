@@ -14,3 +14,14 @@ undodir-nvim/
 # AI flag (local only, created by ./install.sh ia)
 .ai-enabled
 .ai-model
+
+# RAG flag (local only, created by ./install.sh rag)
+.rag-enabled
+.rag-embed-model
+
+# Artefacts de build setuptools (quand pipx installe rag/ en éditable)
+rag/*.egg-info/
+rag/build/
+rag/dist/
+rag/__pycache__/
+rag/*.pyc

@@ -9,8 +9,12 @@ A unified Vim 8+ / Neovim configuration for Python/Django development. Works wit
 ├── common.vim      # Shared options (sourced by both vim and nvim)
 ├── vimrc           # Vim 8+ config (vim-plug, syntastic, NERDTree)
 ├── init.lua        # Neovim config (lazy.nvim, LSP, nvim-cmp, telescope)
-├── install.sh      # One-shot installer (./install.sh ia for AI support)
-├── ai.lua          # AI config (CodeCompanion, loaded only if enabled)
+├── install.sh      # One-shot installer (./install.sh ia | rag for extras)
+├── ai.lua          # AI config (CodeCompanion + OpenCode, loaded if enabled)
+├── rag.lua         # RAG keymaps + commands (loaded if enabled)
+├── rag/            # RAG CLI (pipx-installable Python package)
+│   ├── rag.py
+│   └── pyproject.toml
 ├── CHEATSHEET.md   # Keybindings reference
 └── .gitignore
 ```
@@ -113,6 +117,83 @@ To disable AI, remove `~/.vim/.ai-enabled` and restart Neovim.
 ### Switching to local AI (Ollama)
 
 Edit `ai.lua` and change the `adapter` values from `"anthropic"` to `"ollama"`. The default Ollama model is `qwen2.5-coder:14b`.
+
+## RAG over your codebase (optional)
+
+Build a local retrieval-augmented assistant over any project. The RAG uses
+[Ollama](https://ollama.com/) for embeddings (any embedding model available
+in your Ollama instance) and reuses the generation model configured by
+`./install.sh ia`.
+
+### Setup
+
+```bash
+# 1. Configure the generation model first (if not already done)
+./install.sh ia
+
+# 2. Pull at least one embedding model on your Ollama host
+docker exec ollama ollama pull mxbai-embed-large
+# or: docker exec ollama ollama pull nomic-embed-text
+
+# 3. Install the RAG CLI (via pipx) and enable it in Neovim
+#    An interactive menu will let you pick which embedding model to use.
+./install.sh rag
+
+# 4. Index a project (first time, takes a minute or two)
+cd /path/to/your/project
+vim-rag index .
+```
+
+Re-run `./install.sh rag` any time you want to switch the embedding model —
+existing indices will need to be re-run (the CLI detects the mismatch and
+tells you).
+
+Re-run `vim-rag index .` after pulling changes: it's incremental (re-embeds only
+modified or new files, drops deleted ones).
+
+### Usage
+
+Inside Neovim (leader = `Space`):
+
+| Key | Action |
+|-----|--------|
+| `Space aq` | Ask a question about the current project (prompt) |
+| `Space ar` | Ask a question about the current buffer + its context |
+| `Space aR` | Reindex the current project |
+
+Commands:
+
+- `:VimRagQuery <question>` — same as `Space aq`, with inline argument
+- `:VimRagIndex [path]` — index a given path (defaults to current project)
+- `:VimRagStatus` — show the index status of the current project
+
+The response opens in a floating window: `q` or `Esc` to close, `yy` to copy.
+
+### CLI usage
+
+```bash
+vim-rag index <path>                # index or update
+vim-rag query "question" --project <path>   # raw JSON retrieval (no LLM call)
+vim-rag list                        # list indexed projects
+vim-rag status <path>               # show index meta
+vim-rag clean <path>                # remove index
+```
+
+Index is stored in `~/.cache/vim-rag/<project-hash>/`.
+
+### Design notes
+
+- **Embeddings**: any Ollama embedding model (picked via menu in
+  `./install.sh rag`, stored in `~/.vim/.rag-embed-model`, overridable with
+  `RAG_EMBED_MODEL` env var). Called via `/api/embed` (L2-normalized, batched,
+  4-way parallel).
+- **Chunking**: Python files are split by top-level functions/classes using
+  `ast`; large classes are subdivided by method. Other files use a
+  newline-aware char-based splitter with overlap.
+- **Retrieval**: cosine similarity (= dot product on normalized vectors),
+  pure numpy, ~5 ms on a project with 10k chunks.
+- **Generation**: same Ollama model as `./install.sh ia` (`~/.vim/.ai-model`).
+- **Dependencies**: numpy only (isolated in the pipx venv of `vim-rag`).
 
 ## Colorscheme
 

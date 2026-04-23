@@ -267,3 +267,211 @@ JSONEOF
     echo ""
 
 fi
+
+# =============================================================================
+# RAG (optionnel : ./install.sh rag)
+# Indexe une codebase via Ollama (mxbai-embed-large) + vim-rag CLI
+# Utilisé par rag.lua dans Neovim (<Space>aq / <Space>ar / <Space>aR)
+# =============================================================================
+if [ "${1:-}" = "rag" ]; then
+
+    OLLAMA_HOST_IP="192.168.122.1"
+    OLLAMA_PORT="11434"
+    OLLAMA_BASE_URL="http://${OLLAMA_HOST_IP}:${OLLAMA_PORT}"
+
+    echo ""
+    echo "=== Activation du RAG (indexation de codebase) ==="
+    echo "    Ollama : ${OLLAMA_BASE_URL}"
+
+    # -------------------------------------------------------------------------
+    # 1. Prérequis : Ollama accessible
+    # -------------------------------------------------------------------------
+    echo ""
+    echo "→ Connexion à Ollama..."
+    if ! curl -sf --max-time 5 "${OLLAMA_BASE_URL}/api/tags" > /tmp/rag_ollama_tags.json 2>/dev/null; then
+        echo ""
+        echo "ERREUR : impossible de joindre Ollama sur ${OLLAMA_BASE_URL}"
+        echo "  Vérifie que le conteneur tourne et écoute sur 0.0.0.0:11434"
+        exit 1
+    fi
+    echo "  ✓ Ollama accessible"
+
+    # -------------------------------------------------------------------------
+    # 2. Sélection du modèle d'embedding (filtrage heuristique sur les noms)
+    # -------------------------------------------------------------------------
+    mapfile -t EMBED_MODELS < <(python3 - <<'PYEOF'
+import json, sys
+try:
+    with open('/tmp/rag_ollama_tags.json') as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(1)
+
+# Patterns de noms typiques des modèles d'embedding
+PATTERNS = [
+    'embed', 'bge-', 'bge_', 'bge:', 'nomic-', 'mxbai-',
+    'snowflake-', 'arctic-embed', 'all-minilm', 'paraphrase',
+    'e5-', 'e5_', 'jina-embed', 'gte-',
+]
+for m in data.get('models', []):
+    name = m['name']
+    low  = name.lower()
+    if any(p in low for p in PATTERNS):
+        print(name)
+PYEOF
+)
+
+    if [ ${#EMBED_MODELS[@]} -eq 0 ]; then
+        echo ""
+        echo "ERREUR : aucun modèle d'embedding détecté dans Ollama."
+        echo ""
+        echo "  Pull un modèle d'embedding, par exemple :"
+        echo "    docker exec ollama ollama pull mxbai-embed-large"
+        echo "    docker exec ollama ollama pull nomic-embed-text"
+        echo ""
+        echo "  Puis relance : ./install.sh rag"
+        exit 1
+    fi
+
+    echo ""
+    if [ ${#EMBED_MODELS[@]} -eq 1 ]; then
+        SELECTED_EMBED="${EMBED_MODELS[0]}"
+        echo "  ✓ Un seul modèle d'embedding détecté : ${SELECTED_EMBED}"
+    else
+        echo "┌─────────────────────────────────────────┐"
+        echo "│   Modèles d'embedding disponibles        │"
+        echo "├─────────────────────────────────────────┤"
+        for i in "${!EMBED_MODELS[@]}"; do
+            printf "│  %2d. %-36s│\n" "$((i+1))" "${EMBED_MODELS[$i]}"
+        done
+        echo "└─────────────────────────────────────────┘"
+        echo ""
+        echo "  Recommandation : mxbai-embed-large (qualité) ou"
+        echo "                   nomic-embed-text (léger, rapide)"
+        echo ""
+
+        # Pré-sélection : modèle actuel s'il existe, sinon 1
+        DEFAULT_IDX=1
+        if [ -f "${DIR_VIM_GIT}/.rag-embed-model" ]; then
+            CURRENT=$(cat "${DIR_VIM_GIT}/.rag-embed-model")
+            for i in "${!EMBED_MODELS[@]}"; do
+                if [ "${EMBED_MODELS[$i]}" = "${CURRENT}" ]; then
+                    DEFAULT_IDX=$((i+1))
+                    break
+                fi
+            done
+        fi
+
+        SELECTED_EMBED=""
+        while true; do
+            read -rp "Choisir le modèle d'embedding [1-${#EMBED_MODELS[@]}, défaut ${DEFAULT_IDX}] : " choice
+            choice="${choice:-${DEFAULT_IDX}}"
+            if [[ "$choice" =~ ^[0-9]+$ ]] \
+                && [ "$choice" -ge 1 ] \
+                && [ "$choice" -le "${#EMBED_MODELS[@]}" ]; then
+                SELECTED_EMBED="${EMBED_MODELS[$((choice-1))]}"
+                break
+            fi
+            echo "  → Saisie invalide. Entre un numéro entre 1 et ${#EMBED_MODELS[@]}."
+        done
+    fi
+
+    echo "  ✓ Embedding sélectionné : ${SELECTED_EMBED}"
+
+    # Si le modèle a changé, avertir que l'index sera à refaire
+    if [ -f "${DIR_VIM_GIT}/.rag-embed-model" ]; then
+        PREV=$(cat "${DIR_VIM_GIT}/.rag-embed-model")
+        if [ "${PREV}" != "${SELECTED_EMBED}" ]; then
+            echo ""
+            echo "  ⚠  Modèle d'embedding changé (${PREV} → ${SELECTED_EMBED})."
+            echo "     Les projets déjà indexés devront être réindexés :"
+            echo "       cd /chemin/du/projet && vim-rag index ."
+        fi
+    fi
+
+    # Persister le choix (lu par rag.py)
+    echo "${SELECTED_EMBED}" > "${DIR_VIM_GIT}/.rag-embed-model"
+
+    # -------------------------------------------------------------------------
+    # 3. Vérifier que le modèle de génération (partagé avec ia) est configuré
+    # -------------------------------------------------------------------------
+    if [ ! -f "${DIR_VIM_GIT}/.ai-model" ]; then
+        echo ""
+        echo "⚠  ~/.vim/.ai-model n'existe pas."
+        echo "   Le RAG l'utilise pour générer les réponses (via rag.lua)."
+        echo "   Lance d'abord : ./install.sh ia"
+        echo ""
+        read -rp "Continuer quand même ? [y/N] : " answer
+        case "$answer" in
+            y|Y|yes|YES) ;;
+            *) exit 1 ;;
+        esac
+    else
+        echo "  ✓ Modèle de génération : $(cat "${DIR_VIM_GIT}/.ai-model")"
+    fi
+
+    # -------------------------------------------------------------------------
+    # 4. Installer la CLI vim-rag via pipx (éditable, pour suivre git pull)
+    # -------------------------------------------------------------------------
+    echo ""
+    echo "→ Installation de vim-rag via pipx (mode éditable)..."
+    if pipx list --short 2>/dev/null | grep -q '^vim-rag '; then
+        # Déjà installé : on réinstalle pour prendre en compte requirements.txt
+        pipx reinstall vim-rag
+    else
+        pipx install --editable "${DIR_VIM_GIT}/rag"
+    fi
+    pipx ensurepath > /dev/null
+    export PATH="$HOME/.local/bin:$PATH"
+
+    if ! command -v vim-rag >/dev/null 2>&1; then
+        echo ""
+        echo "ERREUR : la commande 'vim-rag' n'est pas dans le PATH après pipx install."
+        echo "  Ouvre un nouveau terminal ou relance : source ~/.bashrc"
+        exit 1
+    fi
+    echo "  ✓ vim-rag : $(command -v vim-rag)"
+
+    # -------------------------------------------------------------------------
+    # 5. Flag d'activation + plugins Neovim (rag.lua ne requiert rien de lazy,
+    #    mais on lance Lazy! sync au cas où ai.lua ait changé)
+    # -------------------------------------------------------------------------
+    touch "${DIR_VIM_GIT}/.rag-enabled"
+
+    echo ""
+    echo "→ Rechargement des plugins Neovim..."
+    nvim --headless "+Lazy! sync" +qa
+    echo "  ✓ Plugins rechargés"
+
+    # -------------------------------------------------------------------------
+    # Résumé
+    # -------------------------------------------------------------------------
+    echo ""
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║                RAG activé                        ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    printf "║  Embed   : %-38s║\n" "${SELECTED_EMBED}"
+    printf "║  Ollama  : %-38s║\n" "${OLLAMA_BASE_URL}"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Dans Neovim :                                   ║"
+    echo "║    <Space>aq  — pose une question sur le projet  ║"
+    echo "║    <Space>ar  — question sur le buffer + contexte║"
+    echo "║    <Space>aR  — réindexer le projet              ║"
+    echo "║    :VimRagIndex [path]   — indexer               ║"
+    echo "║    :VimRagStatus         — état de l'index       ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Dans un terminal :                              ║"
+    echo "║    vim-rag index <path>                          ║"
+    echo "║    vim-rag query \"question\" --project <path>     ║"
+    echo "║    vim-rag list                                  ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Premier pas :                                   ║"
+    echo "║    cd /chemin/vers/ton/projet                    ║"
+    echo "║    vim-rag index .                               ║"
+    echo "║    puis <Space>aq dans Neovim                    ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Changer d'embedding : ./install.sh rag          ║"
+    echo "╚══════════════════════════════════════════════════╝"
+    echo ""
+
+fi

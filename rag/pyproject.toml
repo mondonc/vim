@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vim-rag"
+version = "0.1.0"
+description = "RAG over a codebase using Ollama embeddings (for ~/.vim)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.scripts]
+vim-rag = "rag:main"
+
+[tool.setuptools]
+py-modules = ["rag"]
