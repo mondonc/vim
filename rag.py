@@ -113,6 +113,7 @@ CHUNK_OVERLAP = 200            # overlap entre chunks non-Python
 EMBED_BATCH_SIZE = 16          # nb de textes par requête /api/embed
 EMBED_PARALLEL = 4             # nb de requêtes parallèles
 HTTP_TIMEOUT = 300             # secondes (indexation initiale peut être lente)
+NUM_THREAD = int(os.environ.get("RAG_NUM_THREAD", "12"))  # cœurs CPU côté Ollama
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +394,7 @@ def embed_batch(texts: list[str]) -> np.ndarray:
     resp = _ollama_post("/api/embed", {
         "model": EMBED_MODEL,
         "input": texts,
+        "options": {"num_thread": NUM_THREAD},
     })
     embeddings = resp.get("embeddings")
     if not embeddings or len(embeddings) != len(texts):
@@ -480,7 +482,7 @@ def cmd_index(project_path: Path) -> int:
     cache = project_cache(project_path)
     log(f"Projet : {project_path}")
     log(f"Cache  : {cache}")
-    log(f"Modèle : {EMBED_MODEL} via {OLLAMA_HOST}")
+    log(f"Modèle : {EMBED_MODEL} via {OLLAMA_HOST} (num_thread={NUM_THREAD})")
 
     # Charger l'index existant s'il y en a un
     existing = load_index(cache)
