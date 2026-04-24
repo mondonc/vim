@@ -1,0 +1,23 @@
+# ~/.vim/.cluster_oar.conf — CONFIGURATION LOCALE, NE PAS COMMITTER
+# Copier ce fichier : cp .cluster_oar.conf.example .cluster_oar.conf
+# Ce fichier est dans .gitignore.
+
+# Login Grid5000 (votre identifiant PERSEUS)
+G5K_LOGIN="votre_login"
+
+# Site Abaca où vous avez accès : nancy, rennes, grenoble, sophia
+# Vérifiez les nœuds disponibles avec :
+#   ssh login@fnancy.grid5000.fr "oarnodes -p | grep gpu_model | sort -u"
+G5K_SITE="nancy"
+
+# Bastion SSH Grid5000 (ne pas modifier sauf changement Inria)
+G5K_GATEWAY="access.grid5000.fr"
+
+# Modèle de GPU exact (tel que retourné par OAR)
+# Vérifier avec : oarnodes --sql "gpu_count>=2" -Y | grep gpu_model
+# Valeur courante pour RTX A5000 :
+G5K_GPU_MODEL="RTX A5000"
+
+# Durée de la réservation (format HH:MM:SS)
+# 4h est un bon compromis — le cluster se reconnecte automatiquement si nvim redémarre
+G5K_WALLTIME="4:00:00"

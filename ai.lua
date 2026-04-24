@@ -6,7 +6,7 @@
 -- Ollama tourne sur l'hôte KVM : 192.168.122.1:11434
 -- =============================================================================
 
-local OLLAMA_URL = "http://192.168.122.1:11434"
+local OLLAMA_URL = vim.g.ollama_url or "http://192.168.122.1:11434"
 
 -- Lire le modèle sélectionné lors de l'installation
 -- Retourne le contenu de ~/.vim/.ai-model, ou un fallback lisible

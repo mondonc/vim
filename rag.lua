@@ -17,7 +17,7 @@
 --   :VimRagStatus              afficher l'état de l'index du projet
 -- =============================================================================
 
-local OLLAMA_URL = "http://192.168.122.1:11434"
+local OLLAMA_URL = vim.g.ollama_url or "http://192.168.122.1:11434"
 local RAG_CMD    = "vim-rag"
 local TOP_K      = 6
 local NUM_CTX    = 32768   -- cohérent avec ai.lua

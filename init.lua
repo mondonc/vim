@@ -181,6 +181,13 @@ if uv.fs_stat(vimdir .. "/.rag-enabled") then
     vim.list_extend(plugins, dofile(vimdir .. "/rag.lua"))
 end
 
+-- Cluster OAR (Abaca/Grid5000) — chargé après ai.lua et rag.lua pour pouvoir
+-- intercepter leurs keymaps
+if uv.fs_stat(vimdir .. "/.cluster-oar-enabled") then
+    dofile(vimdir .. "/cluster_oar.lua")
+end
+
+
 require("lazy").setup(plugins)
 
 -- =============================================================================

@@ -25,3 +25,8 @@ rag/build/
 rag/dist/
 rag/__pycache__/
 rag/*.pyc
+
+# Cluster OAR (local only, created by ./install.sh cluster_oar)
+.cluster-oar-enabled
+.cluster_oar.conf
+.cluster_oar_state

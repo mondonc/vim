@@ -475,3 +475,68 @@ PYEOF
     echo ""
 
 fi
+
+# =============================================================================
+# CLUSTER OAR (optionnel : ./install.sh cluster_oar)
+# Configure le mode Abaca/Grid5000 dans Neovim
+# =============================================================================
+if [ "${1:-}" = "cluster_oar" ]; then
+
+    echo "=== Configuration Cluster OAR (Abaca) ==="
+
+    # 1. Fichier de config
+    CONF="${DIR_VIM_GIT}/.cluster_oar.conf"
+    EXAMPLE="${DIR_VIM_GIT}/.cluster_oar.conf.example"
+    if [ ! -f "$CONF" ]; then
+        cp "$EXAMPLE" "$CONF"
+        echo ""
+        echo "⚠  Fichier de config créé : $CONF"
+        echo "   Éditez-le avant de continuer :"
+        echo "     $EDITOR $CONF"
+        echo ""
+        read -r -p "Appuyez sur Entrée une fois la config éditée…"
+    fi
+
+    # 2. Vérifier que le login est renseigné
+    G5K_LOGIN=$(grep '^G5K_LOGIN' "$CONF" | cut -d= -f2 | tr -d '"' | tr -d "'")
+    if [ -z "$G5K_LOGIN" ] || [ "$G5K_LOGIN" = "votre_login" ]; then
+        echo "ERREUR : G5K_LOGIN non configuré dans $CONF"
+        exit 1
+    fi
+    echo "  ✓ Login Grid5000 : $G5K_LOGIN"
+
+    # 3. Tester la connexion SSH au gateway
+    echo "  Test de connexion à access.grid5000.fr…"
+    if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            -o BatchMode=yes \
+            "$G5K_LOGIN@access.grid5000.fr" "echo ok" 2>/dev/null | grep -q ok; then
+        echo "  ⚠  Connexion SSH échouée."
+        echo "     Vérifiez que votre clé SSH est déposée sur Grid5000 :"
+        echo "     https://www.grid5000.fr/w/Grid5000:Connect"
+    else
+        echo "  ✓ Connexion SSH Grid5000 OK"
+    fi
+
+    # 4. Rendre le script nœud exécutable
+    chmod +x "${DIR_VIM_GIT}/cluster_oar_node.sh"
+    echo "  ✓ cluster_oar_node.sh prêt"
+
+    # 5. Flag d'activation
+    touch "${DIR_VIM_GIT}/.cluster-oar-enabled"
+
+    # 6. Reload Neovim plugins
+    nvim --headless "+Lazy! sync" +qa 2>/dev/null || true
+
+    echo ""
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║            Mode Cluster OAR activé               ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Dans Neovim :                                   ║"
+    echo "║    <leader>aC   — démarrer / arrêter le cluster  ║"
+    echo "║    <leader>aS   — statut                         ║"
+    echo "║    :ClusterStart / :ClusterStop / :ClusterStatus ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Les keymaps RAG existants (<leader>aq/ar/aR)    ║"
+    echo "║  démarrent le cluster automatiquement si besoin. ║"
+    echo "╚══════════════════════════════════════════════════╝"
+fi
