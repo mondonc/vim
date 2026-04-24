@@ -108,8 +108,9 @@ INDEX_FILENAMES = {
 }
 
 MAX_FILE_SIZE = 500_000        # 500 KB par fichier
-CHUNK_CHARS = 1500             # taille cible d'un chunk non-Python
-CHUNK_OVERLAP = 200            # overlap entre chunks non-Python
+CHUNK_CHARS = 1000             # taille cible d'un chunk non-Python (~250 tokens)
+CHUNK_OVERLAP = 150            # overlap entre chunks non-Python
+MAX_CHUNK_CHARS = 1800         # hard cap (~450 tokens) : au-delà on découpe
 EMBED_BATCH_SIZE = 16          # nb de textes par requête /api/embed
 EMBED_PARALLEL = 4             # nb de requêtes parallèles
 HTTP_TIMEOUT = 300             # secondes (indexation initiale peut être lente)
@@ -348,6 +349,57 @@ def chunk_text(source: str, rel_path: str) -> list[dict]:
     return chunks
 
 
+def _split_oversized(chunk: dict) -> list[dict]:
+    """Découpe un chunk trop long en sous-chunks <= MAX_CHUNK_CHARS.
+
+    Utilisé comme garde-fou final : si une fonction Python ou un morceau
+    de texte dépasse la fenêtre de contexte du modèle d'embedding, on le
+    tranche en morceaux raisonnables (en privilégiant les coupures sur
+    des lignes vides / newlines).
+    """
+    text = chunk["text"]
+    if len(text) <= MAX_CHUNK_CHARS:
+        return [chunk]
+
+    parts: list[dict] = []
+    pos = 0
+    idx = 0
+    total = len(text)
+    base_start = chunk["start_line"]
+
+    while pos < total:
+        end = min(pos + MAX_CHUNK_CHARS, total)
+        # Chercher une bonne coupure (ligne vide, sinon newline) dans le
+        # dernier quart du morceau, pour ne pas couper en plein milieu
+        if end < total:
+            boundary = text.rfind("\n\n", pos + MAX_CHUNK_CHARS // 2, end)
+            if boundary == -1:
+                boundary = text.rfind("\n", pos + MAX_CHUNK_CHARS // 2, end)
+            if boundary != -1:
+                end = boundary + 1
+
+        piece = text[pos:end]
+        if piece.strip():
+            # Estimer la plage de lignes du sous-chunk dans le fichier d'origine
+            lines_before = text[:pos].count("\n")
+            lines_in = piece.count("\n")
+            parts.append({
+                "text": piece,
+                "path": chunk["path"],
+                "type": chunk["type"],
+                "name": f"{chunk['name']} [part {idx + 1}]",
+                "start_line": base_start + lines_before,
+                "end_line": base_start + lines_before + lines_in,
+            })
+        idx += 1
+        if end >= total:
+            break
+        # Petit overlap pour garder du contexte entre sous-chunks
+        pos = max(end - CHUNK_OVERLAP, pos + 1)
+
+    return parts
+
+
 def chunk_file(path: Path, rel_path: str) -> list[dict]:
     try:
         source = path.read_text(encoding="utf-8", errors="replace")
@@ -356,8 +408,15 @@ def chunk_file(path: Path, rel_path: str) -> list[dict]:
         return []
 
     if path.suffix.lower() in {".py", ".pyi"}:
-        return chunk_python(source, rel_path)
-    return chunk_text(source, rel_path)
+        raw_chunks = chunk_python(source, rel_path)
+    else:
+        raw_chunks = chunk_text(source, rel_path)
+
+    # Garde-fou : aucun chunk ne doit dépasser MAX_CHUNK_CHARS
+    final: list[dict] = []
+    for c in raw_chunks:
+        final.extend(_split_oversized(c))
+    return final
 
 
 # ---------------------------------------------------------------------------
@@ -405,41 +464,97 @@ def embed_batch(texts: list[str]) -> np.ndarray:
     return np.asarray(embeddings, dtype=np.float32)
 
 
-def embed_all(texts: list[str], *, progress_label: str = "") -> np.ndarray:
-    """Embed une liste de textes en parallèle, par batchs."""
+def _embed_batch_with_fallback(texts: list[str]) -> tuple[np.ndarray, list[int]]:
+    """Embed un batch ; si le batch échoue en 400 (ex: un chunk trop long),
+    retry chunk par chunk pour garder les bons et skipper le(s) fautif(s).
+
+    Retourne (matrix, local_indices_kept) : matrix est de taille
+    (len(local_indices_kept), dim), et local_indices_kept donne les positions
+    au sein du batch d'origine qui ont été embeddées avec succès.
+    """
+    try:
+        matrix = embed_batch(texts)
+        return matrix, list(range(len(texts)))
+    except RuntimeError as e:
+        # Si ce n'est pas une erreur "contexte dépassé", on repropage
+        msg = str(e).lower()
+        if "exceeds the context length" not in msg and "http 400" not in msg:
+            raise
+        # Retry un par un
+        log(f"  ⚠ batch trop long, fallback 1-par-1 sur {len(texts)} chunks")
+        kept_rows: list[np.ndarray] = []
+        kept_idx: list[int] = []
+        for i, t in enumerate(texts):
+            try:
+                row = embed_batch([t])
+                kept_rows.append(row)
+                kept_idx.append(i)
+            except RuntimeError as e2:
+                preview = t[:80].replace("\n", " ")
+                log(f"  ⚠ chunk skippé ({len(t)} chars): {preview!r}... — {e2}")
+        if not kept_rows:
+            return np.empty((0, 0), dtype=np.float32), []
+        return np.vstack(kept_rows), kept_idx
+
+
+def embed_all(texts: list[str], *, progress_label: str = "") -> tuple[np.ndarray, list[int]]:
+    """Embed une liste de textes en parallèle, par batchs.
+
+    Retourne (embeddings, kept_indices) où kept_indices est la liste des
+    indices globaux (dans `texts`) qui ont été embeddés avec succès, dans
+    l'ordre de `embeddings`.
+    """
     if not texts:
-        return np.empty((0, 0), dtype=np.float32)
+        return np.empty((0, 0), dtype=np.float32), []
 
     n = len(texts)
-    # Construire les batchs : liste de (offset_global, sous-liste de textes)
     batches: list[tuple[int, list[str]]] = []
     for i in range(0, n, EMBED_BATCH_SIZE):
         batches.append((i, texts[i:i + EMBED_BATCH_SIZE]))
 
-    results: list[tuple[int, np.ndarray]] = []
+    # Par batch : liste de (offset, matrix, local_kept_indices)
+    results: list[tuple[int, np.ndarray, list[int]]] = []
     done_count = 0
     t0 = time.time()
 
     with ThreadPoolExecutor(max_workers=EMBED_PARALLEL) as pool:
         future_to_offset = {
-            pool.submit(embed_batch, batch_texts): offset
+            pool.submit(_embed_batch_with_fallback, batch_texts): offset
             for offset, batch_texts in batches
         }
         for fut in as_completed(future_to_offset):
             offset = future_to_offset[fut]
-            matrix = fut.result()  # propage les exceptions proprement
-            results.append((offset, matrix))
+            matrix, kept = fut.result()  # propage les vraies erreurs
+            results.append((offset, matrix, kept))
             done_count += matrix.shape[0]
             if progress_label:
                 pct = int(100 * done_count / n)
                 log(f"  {progress_label}: {pct}% ({done_count}/{n})")
 
-    # Trier par offset et concaténer
+    # Trier par offset, construire matrice finale + indices globaux
     results.sort(key=lambda x: x[0])
-    full = np.vstack([m for _, m in results])
+    kept_global: list[int] = []
+    matrices: list[np.ndarray] = []
+    for offset, matrix, kept in results:
+        if matrix.size == 0:
+            continue
+        matrices.append(matrix)
+        for local_i in kept:
+            kept_global.append(offset + local_i)
+
+    if matrices:
+        full = np.vstack(matrices)
+    else:
+        full = np.empty((0, 0), dtype=np.float32)
+
     elapsed = time.time() - t0
-    log(f"  {n} embeddings en {elapsed:.1f}s ({n/max(elapsed, 0.01):.1f}/s)")
-    return full
+    skipped = n - len(kept_global)
+    if skipped > 0:
+        log(f"  {len(kept_global)} embeddings gardés / {skipped} skippés "
+            f"en {elapsed:.1f}s")
+    else:
+        log(f"  {n} embeddings en {elapsed:.1f}s ({n/max(elapsed, 0.01):.1f}/s)")
+    return full, kept_global
 
 
 # ---------------------------------------------------------------------------
@@ -551,10 +666,21 @@ def cmd_index(project_path: Path) -> int:
     # Embed les nouveaux chunks
     if new_chunks:
         log("→ Génération des embeddings...")
-        new_embeddings = embed_all(
+        new_embeddings, kept_indices = embed_all(
             [c["text"] for c in new_chunks],
             progress_label="embed",
         )
+        # Filtrer new_chunks aux indices qui ont réussi
+        if len(kept_indices) < len(new_chunks):
+            new_chunks = [new_chunks[i] for i in kept_indices]
+            # Recalculer les ranges par fichier à partir des chunks filtrés
+            file_chunk_ranges = {}
+            for i, c in enumerate(new_chunks):
+                rel = c["path"]
+                if rel in file_chunk_ranges:
+                    file_chunk_ranges[rel] = (file_chunk_ranges[rel][0], i + 1)
+                else:
+                    file_chunk_ranges[rel] = (i, i + 1)
     else:
         dim = kept_embeddings_idx and old_embeddings.shape[1] or 0
         new_embeddings = np.empty((0, dim), dtype=np.float32)
