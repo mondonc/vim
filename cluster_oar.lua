@@ -249,8 +249,8 @@ local function submit_job(conf, on_done)
             local oar_cmd = table.concat({
                 "chmod +x ~/cluster_oar_node.sh &&",
                 "oarsub -q abaca",
-                "-l \"walltime=" .. conf.walltime .. "\"",
-                "-p \"gpu_mem>'24'\"",
+                "-l \"gpu=2,walltime=" .. conf.walltime .. "\"",
+                -- "-p \"gpu_mem>'24'\"",
                 "-n nvim_cluster",
                 "\"$HOME/cluster_oar_node.sh\"",
             }, " ")
