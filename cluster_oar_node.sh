@@ -53,11 +53,9 @@ if [ ! -x "$OLLAMA_BIN" ]; then
             ;;
     esac
 
-    # Le tgz extrait dans $HOME :
     #   $HOME/bin/ollama        ← binaire
     #   $HOME/lib/ollama/       ← libs CUDA/ROCm bundled
-    curl -fsSL "https://ollama.com/download/ollama-linux-${OLLAMA_ARCH}.tgz" \
-        | tar -C "$HOME" -xz
+    curl -fsSL "https://ollama.com/download/ollama-linux-${OLLAMA_ARCH}.tar.zst" | tar -x --zstd -C "$HOME"
 
     chmod +x "$OLLAMA_BIN"
     echo "[$(date -Iseconds)] ✓ Ollama installé : $("$OLLAMA_BIN" --version 2>/dev/null || echo '(version inconnue)')"
