@@ -478,7 +478,6 @@ fi
 
 # =============================================================================
 # CLUSTER OAR (optionnel : ./install.sh cluster_oar)
-# Configure le mode Abaca/Grid5000 dans Neovim
 # =============================================================================
 if [ "${1:-}" = "cluster_oar" ]; then
 
@@ -503,18 +502,18 @@ if [ "${1:-}" = "cluster_oar" ]; then
         echo "ERREUR : G5K_LOGIN non configuré dans $CONF"
         exit 1
     fi
-    echo "  ✓ Login Grid5000 : $G5K_LOGIN"
+    echo "  ✓ Login cluster : $G5K_LOGIN"
+
+    G5K_ACCESS=$(grep '^G5K_ACCESS' "$CONF" | cut -d= -f2 | tr -d '"' | tr -d "'")
 
     # 3. Tester la connexion SSH au gateway
-    echo "  Test de connexion à access.grid5000.fr…"
+    echo "  Test de connexion au cluster…"
     if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             -o BatchMode=yes \
-            "$G5K_LOGIN@access.grid5000.fr" "echo ok" 2>/dev/null | grep -q ok; then
+            "$G5K_LOGIN@$G5K_ACCESS" "echo ok" 2>/dev/null | grep -q ok; then
         echo "  ⚠  Connexion SSH échouée."
-        echo "     Vérifiez que votre clé SSH est déposée sur Grid5000 :"
-        echo "     https://www.grid5000.fr/w/Grid5000:Connect"
     else
-        echo "  ✓ Connexion SSH Grid5000 OK"
+        echo "  ✓ Connexion SSH access OK"
     fi
 
     # 4. Rendre le script nœud exécutable

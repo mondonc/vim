@@ -71,7 +71,7 @@ local _conf = nil
 
 local function read_conf()
     if _conf then return _conf end
-    local c = { login=nil, site="nancy", gateway="access.grid5000.fr",
+    local c = { login=nil, site="nancy", gateway="abaca",
                 gpu_model="RTX A5000", walltime="4:00:00" }
     local f = io.open(CONF_FILE, "r")
     if not f then
@@ -81,7 +81,7 @@ local function read_conf()
     for line in f:lines() do
         local k, v = line:match("^([%w_]+)%s*=%s*\"?([^\"]-)\"?%s*$")
         if k and v and not line:match("^%s*#") then
-            c[k:lower()] = v
+            c[k:lower():gsub("^g5k_", "")] = v
         end
     end
     f:close()
@@ -128,7 +128,8 @@ end
 -- Helpers SSH
 -- ============================================================
 local function frontend_fqdn(conf)
-    return "f" .. conf.site .. ".grid5000.fr"
+    -- return "f" .. conf.site .. ".grid5000.fr"
+    return conf.site
 end
 
 local function node_fqdn(conf, node)
@@ -143,7 +144,7 @@ local function ssh_run(conf, cmd, cb)
         "ssh",
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=15",
-        "-J", conf.login .. "@" .. conf.gateway,
+        -- "-J", conf.login .. "@" .. conf.gateway,
         conf.login .. "@" .. frontend_fqdn(conf),
         cmd,
     }, {
@@ -227,7 +228,7 @@ local function submit_job(conf, on_done)
         "scp",
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=15",
-        "-J", conf.login .. "@" .. conf.gateway,
+        -- "-J", conf.login .. "@" .. conf.gateway,
         NODE_SCRIPT,
         conf.login .. "@" .. frontend_fqdn(conf) .. ":~/cluster_oar_node.sh",
     }, {
@@ -237,11 +238,19 @@ local function submit_job(conf, on_done)
                 return
             end
             sp_set("Soumission du job OAR…")
-            local oar_cmd = table.concat({
+            local oar_cmd_old = table.concat({
                 "chmod +x ~/cluster_oar_node.sh &&",
                 "oarsub -q abaca",
                 "-p \"gpu_model='" .. conf.gpu_model .. "'\"",
                 "-l \"host=1/gpu=2,walltime=" .. conf.walltime .. "\"",
+                "-n nvim_cluster",
+                "\"$HOME/cluster_oar_node.sh\"",
+            }, " ")
+            local oar_cmd = table.concat({
+                "chmod +x ~/cluster_oar_node.sh &&",
+                "oarsub -q abaca",
+                "-l \"walltime=" .. conf.walltime .. "\"",
+                "-p \"gpu_mem>'24'\"",
                 "-n nvim_cluster",
                 "\"$HOME/cluster_oar_node.sh\"",
             }, " ")
