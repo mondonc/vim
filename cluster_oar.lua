@@ -71,7 +71,7 @@ local _conf = nil
 
 local function read_conf()
     if _conf then return _conf end
-    local c = { login=nil, site="nancy", gateway="access.grid5000.fr",
+    local c = { login=nil, site="nancy", gateway="abaca",
                 gpu_model="RTX A5000", walltime="4:00:00" }
     local f = io.open(CONF_FILE, "r")
     if not f then
@@ -81,7 +81,7 @@ local function read_conf()
     for line in f:lines() do
         local k, v = line:match("^([%w_]+)%s*=%s*\"?([^\"]-)\"?%s*$")
         if k and v and not line:match("^%s*#") then
-            c[k:lower()] = v
+            c[k:lower():gsub("^g5k_", "")] = v
         end
     end
     f:close()
@@ -128,7 +128,8 @@ end
 -- Helpers SSH
 -- ============================================================
 local function frontend_fqdn(conf)
-    return "f" .. conf.site .. ".grid5000.fr"
+    -- return "f" .. conf.site .. ".grid5000.fr"
+    return conf.site
 end
 
 local function node_fqdn(conf, node)
@@ -137,17 +138,15 @@ local function node_fqdn(conf, node)
 end
 
 -- Lance cmd sur le frontend via SSH, appelle cb(code, stdout)
--- stderr est redirigé sur stdout (2>&1) pour ne pas perdre les messages d'erreur
--- de commandes comme oarstat qui écrivent parfois sur stderr.
 local function ssh_run(conf, cmd, cb)
     local out = {}
     vim.fn.jobstart({
         "ssh",
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=15",
-        "-J", conf.login .. "@" .. conf.gateway,
+        -- "-J", conf.login .. "@" .. conf.gateway,
         conf.login .. "@" .. frontend_fqdn(conf),
-        cmd .. " 2>&1",   -- ← stderr → stdout pour ne rien perdre
+        cmd,
     }, {
         on_stdout = function(_, data)
             for _, l in ipairs(data or {}) do
@@ -229,7 +228,7 @@ local function submit_job(conf, on_done)
         "scp",
         "-o", "StrictHostKeyChecking=no",
         "-o", "ConnectTimeout=15",
-        "-J", conf.login .. "@" .. conf.gateway,
+        -- "-J", conf.login .. "@" .. conf.gateway,
         NODE_SCRIPT,
         conf.login .. "@" .. frontend_fqdn(conf) .. ":~/cluster_oar_node.sh",
     }, {
@@ -239,11 +238,19 @@ local function submit_job(conf, on_done)
                 return
             end
             sp_set("Soumission du job OAR…")
-            local oar_cmd = table.concat({
+            local oar_cmd_old = table.concat({
                 "chmod +x ~/cluster_oar_node.sh &&",
                 "oarsub -q abaca",
                 "-p \"gpu_model='" .. conf.gpu_model .. "'\"",
                 "-l \"host=1/gpu=2,walltime=" .. conf.walltime .. "\"",
+                "-n nvim_cluster",
+                "\"$HOME/cluster_oar_node.sh\"",
+            }, " ")
+            local oar_cmd = table.concat({
+                "chmod +x ~/cluster_oar_node.sh &&",
+                "oarsub -q abaca",
+                "-l \"gpu=2,walltime=" .. conf.walltime .. "\"",
+                -- "-p \"gpu_mem>'24'\"",
                 "-n nvim_cluster",
                 "\"$HOME/cluster_oar_node.sh\"",
             }, " ")
@@ -279,38 +286,17 @@ local function poll_until_running(conf, job_id, on_running)
         end
         sp_set(("Job %s en attente… (%d/40)"):format(job_id, tries))
         ssh_run(conf, "oarstat -j " .. job_id .. " -f", function(_, out)
-            -- Debug : affiche la sortie brute la première fois pour aider au diagnostic
-            if tries == 1 and out ~= "" then
-                vim.schedule(function()
-                    vim.notify("[ClusterOAR] oarstat output (debug):\n" .. out:sub(1, 500),
-                               vim.log.levels.DEBUG)
-                end)
-            end
-
-            -- Matching robuste : insensible à la casse, trim des espaces
-            local st = out:match("[Ss]tate%s*=%s*(%w+)")
-            -- Le champ s'appelle assigned_hostnames (pas assigned_network_address)
-            local nd = out:match("[Aa]ssigned_hostnames%s*=%s*(%S+)")
-
-            if st and st:lower() == "running" and nd and nd ~= "" then
+            local st  = out:match("state = (%w+)")
+            local nd  = out:match("assigned_network_address = (%S+)")
+            if st == "Running" and nd and nd ~= "" then
                 S.node = nd; save_state()
                 sp_set("Nœud alloué : " .. nd)
                 on_running(nd)
-            elseif st and (st:lower() == "error"
-                        or st:lower() == "finishing"
-                        or st:lower() == "terminated") then
-                sp_stop("[ClusterOAR] Job en état '" .. st .. "'", vim.log.levels.ERROR)
+            elseif st == "Error" or st == "Finishing" or st == "Terminated" then
+                sp_stop("[ClusterOAR] Job en état '" .. (st or "?") .. "'",
+                        vim.log.levels.ERROR)
                 S.job_id = nil; S.node = nil; save_state()
             else
-                -- Ni Running ni état terminal : on repolling
-                -- Si out est vide, c'est probablement un problème SSH/oarstat
-                if out == "" then
-                    vim.schedule(function()
-                        vim.notify("[ClusterOAR] oarstat a retourné une sortie vide (essai "
-                                   .. tries .. "). Vérifie la connexion SSH au frontend.",
-                                   vim.log.levels.WARN)
-                    end)
-                end
                 vim.defer_fn(poll, 15000)
             end
         end)
@@ -321,9 +307,9 @@ end
 local function check_job_alive(conf, job_id, cb)
     ssh_run(conf, "oarstat -j " .. job_id .. " -f 2>/dev/null; echo __END__",
         function(_, out)
-            local st = out:match("[Ss]tate%s*=%s*(%w+)")
-            local nd = out:match("[Aa]ssigned_hostnames%s*=%s*(%S+)")
-            cb(st ~= nil and st:lower() == "running" and nd ~= nil, nd)
+            local st = out:match("state = (%w+)")
+            local nd = out:match("assigned_network_address = (%S+)")
+            cb(st == "Running" and nd ~= nil, nd)
         end)
 end
 
