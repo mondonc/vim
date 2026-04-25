@@ -85,8 +85,6 @@ local function read_conf()
         end
     end
     f:close()
-    -- Accepte les deux formes de clé : "G5K_LOGIN" (install.sh) et "login" (historique)
-    c.login = c.login or c.g5k_login
     assert(c.login and c.login ~= "",
         "[ClusterOAR] G5K_LOGIN manquant dans " .. CONF_FILE)
     _conf = c
