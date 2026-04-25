@@ -8,11 +8,14 @@
 
 local OLLAMA_URL = vim.g.ollama_url or "http://192.168.122.1:11434"
 
--- Lire le modèle sélectionné lors de l'installation
--- Retourne le contenu de ~/.vim/.ai-model, ou un fallback lisible
-local function read_model()
-    local model_file = vim.fn.expand("~/.vim/.ai-model")
-    local f = io.open(model_file, "r")
+-- ----------------------------------------------------------------------------
+-- Lecture des modèles
+--   ~/.vim/.ai-model       — modèle "coder" (utilisé par inline + agent)
+--   ~/.vim/.ai-model-chat  — modèle "chat"  (utilisé par chat / clarification)
+--                            si absent, fallback sur .ai-model
+-- ----------------------------------------------------------------------------
+local function read_one_model(filename, warn_if_missing)
+    local f = io.open(vim.fn.expand("~/.vim/" .. filename), "r")
     if f then
         local model = f:read("*l")
         f:close()
@@ -20,16 +23,40 @@ local function read_model()
             return vim.trim(model)
         end
     end
-    -- Si le fichier n'existe pas : avertissement et fallback
-    vim.notify(
-        "[IA] ~/.vim/.ai-model introuvable.\n"
-        .. "Relance ./install.sh ia pour sélectionner un modèle.",
-        vim.log.levels.WARN
-    )
-    return "qwen2.5-coder:14b"
+    if warn_if_missing then
+        vim.notify(
+            "[IA] ~/.vim/" .. filename .. " introuvable.\n"
+            .. "Relance ./install.sh ia pour sélectionner un modèle.",
+            vim.log.levels.WARN
+        )
+    end
+    return nil
 end
 
-local AI_MODEL = read_model()
+-- Modèle coder (commit msg, inline edit, agent edits)
+local AI_MODEL = read_one_model(".ai-model", true) or "qwen2.5-coder:14b"
+
+-- Modèle chat (clarification, dialogue) — fallback sur le coder si absent
+local AI_MODEL_CHAT = read_one_model(".ai-model-chat", false) or AI_MODEL
+
+-- Q3 (c) : warning si le modèle utilisé pour l'agent est < 14B
+-- (le tool use sur Ollama est instable sous 14B)
+local function check_model_size(model_name, role)
+    local size_str = model_name:match(":(%d+)[bB]")
+    if not size_str then return end -- pas de taille détectable, on ne dit rien
+    local size = tonumber(size_str)
+    if size and size < 14 then
+        vim.notify(string.format(
+            "[IA] ⚠ Modèle %s : %dB pour le rôle '%s'.\n"
+            .. "Le tool use (lecture de fichiers, etc.) est instable sous 14B.\n"
+            .. "Recommandation : 14B-32B pour un comportement fiable.",
+            model_name, size, role), vim.log.levels.WARN)
+    end
+end
+check_model_size(AI_MODEL, "coder/agent")
+if AI_MODEL_CHAT ~= AI_MODEL then
+    check_model_size(AI_MODEL_CHAT, "chat")
+end
 
 -- =============================================================================
 return {
@@ -50,7 +77,7 @@ return {
 
                 adapters = {
                     http = {                          -- ← nouveau niveau obligatoire
-                        ollama_host = function()
+                        ollama_coder = function()
                             return require("codecompanion.adapters").extend("ollama", {
                                 env = {
                                     url = OLLAMA_URL,
@@ -63,13 +90,31 @@ return {
                                 },
                             })
                         end,
+                        ollama_chat = function()
+                            return require("codecompanion.adapters").extend("ollama", {
+                                env = {
+                                    url = OLLAMA_URL,
+                                },
+                                schema = {
+                                    model       = { default = AI_MODEL_CHAT },
+                                    num_ctx     = { default = 32768 },
+                                    -- Légèrement plus créatif que le coder pour la
+                                    -- phase de clarification / dialogue
+                                    temperature = { default = 0.3 },
+                                    num_thread  = { default = 20 },
+                                },
+                            })
+                        end,
                     },
                 },
 
                 strategies = {
-                    chat   = { adapter = "ollama_host" },
-                    inline = { adapter = "ollama_host" },
-                    agent  = { adapter = "ollama_host" },
+                    -- Q2 (a) : per-strategy automatique
+                    -- chat : modèle "général"   (clarification, dialogue, tool use)
+                    -- inline/agent : modèle "coder" (édition de code)
+                    chat   = { adapter = "ollama_chat" },
+                    inline = { adapter = "ollama_coder" },
+                    agent  = { adapter = "ollama_coder" },
                 },
 
                 display = {
@@ -95,6 +140,97 @@ return {
                     log_level = "WARN",
                     -- Langue des réponses
                     language = "French",
+                },
+
+                -- =========================================================
+                -- Prompt library : workflow IA sur une issue GitLab
+                -- Invoqué depuis gitlab.lua via :CodeCompanion /issue_workflow
+                -- ou la palette d'actions (:CodeCompanionActions)
+                --
+                -- Le system prompt est CONSTRUIT À L'INVOCATION (function),
+                -- pour lire vim.g.current_issue à ce moment-là.
+                -- =========================================================
+                prompt_library = {
+                    ["Issue Workflow"] = {
+                        strategy = "chat",
+                        description = "Workflow GitLab : clarifier une issue puis l'implémenter",
+                        opts = {
+                            short_name = "issue_workflow",
+                            -- Auto-submit le premier message au lieu de juste l'afficher
+                            auto_submit = true,
+                            -- Ne pas demander confirmation avant ouverture
+                            user_prompt = false,
+                        },
+                        prompts = {
+                            {
+                                role = "system",
+                                content = function()
+                                    local issue = vim.g.current_issue
+                                    if not issue then
+                                        return "ERREUR : aucune issue sélectionnée. "
+                                            .. "Demande à l'utilisateur de lancer :GitlabIssue d'abord."
+                                    end
+
+                                    -- Project tree (fonction exposée par gitlab.lua)
+                                    local tree = ""
+                                    if _G.GitlabIssueProjectTree then
+                                        tree = _G.GitlabIssueProjectTree()
+                                    end
+
+                                    local labels = ""
+                                    if issue.labels and #issue.labels > 0 then
+                                        labels = "Labels : " .. table.concat(issue.labels, ", ") .. "\n"
+                                    end
+
+                                    return table.concat({
+                                        "Tu es un assistant de développement chargé d'aider à résoudre",
+                                        "une issue GitLab. Tu réponds en FRANÇAIS.",
+                                        "",
+                                        "## Issue à traiter",
+                                        "",
+                                        "**#" .. issue.iid .. " — " .. issue.title .. "**",
+                                        labels,
+                                        "Description :",
+                                        issue.description ~= "" and issue.description or "_(pas de description)_",
+                                        "",
+                                        "## Arborescence du projet",
+                                        "",
+                                        "```",
+                                        tree,
+                                        "```",
+                                        "",
+                                        "## Méthode (à suivre IMPÉRATIVEMENT en 3 phases)",
+                                        "",
+                                        "**Phase 1 — Exploration**",
+                                        "Utilise les outils à ta disposition (@read_file, @grep_search,",
+                                        "@file_search, etc.) pour lire le code pertinent. Ne pose pas",
+                                        "de questions tant que tu n'as pas exploré ce qui est nécessaire.",
+                                        "",
+                                        "**Phase 2 — Clarification**",
+                                        "Pose à l'utilisateur 1 à 5 questions précises (en français)",
+                                        "pour lever les ambiguïtés et confirmer l'approche d'implémentation.",
+                                        "Attends ses réponses avant de continuer.",
+                                        "",
+                                        "**Phase 3 — Reformulation et validation**",
+                                        "Reformule en français ce que tu vas implémenter (fichiers",
+                                        "concernés, changements prévus). Termine par : « Tape \"go\"",
+                                        "quand tu valides cette approche. »",
+                                        "",
+                                        "**Phase 4 — Implémentation (UNIQUEMENT après le \"go\")**",
+                                        "Utilise @insert_edit_into_file pour appliquer les changements.",
+                                        "L'utilisateur validera chaque diff manuellement.",
+                                        "",
+                                        "Ne saute JAMAIS la phase 2 ni la phase 3.",
+                                    }, "\n")
+                                end,
+                                opts = { visible = false }, -- system prompt non affiché dans le chat
+                            },
+                            {
+                                role = "user",
+                                content = "Démarre la phase 1 : explore le code pour comprendre cette issue.",
+                            },
+                        },
+                    },
                 },
             })
 
@@ -207,6 +343,12 @@ return {
                         vim.notify("[Git] git commit échoué :\n" .. commit_out, vim.log.levels.ERROR)
                     else
                         vim.notify("[Git] ✓ Commit effectué\n" .. vim.trim(commit_out), vim.log.levels.INFO)
+                        -- Q3 (b) : efface l'issue après commit réussi
+                        if vim.g.current_issue then
+                            vim.notify(string.format("[GitLab] Issue #%d marquée comme résolue (effacée)",
+                                vim.g.current_issue.iid), vim.log.levels.INFO)
+                            vim.g.current_issue = nil
+                        end
                     end
                 end, { buffer = buf, desc = "Valider et commiter" })
 
@@ -220,6 +362,28 @@ return {
             local function generate_and_open(diff, files)
                 local t0 = vim.uv.now()
                 start_spinner("Génération du message de commit…")
+
+                -- Q1 (a) : si une issue est en cours, le message DOIT commencer
+                -- par "Fix #<iid>: " (format conventional commits avec issue ref)
+                local issue = vim.g.current_issue
+                local format_instruction
+                if issue then
+                    format_instruction = string.format(
+                        "Génère un message de commit en respectant exactement ce format :\n"
+                        .. "ligne 1 : Fix #%d: <description courte en anglais>\n"
+                        .. "ligne 2 : (with codecompanion@neovim)\n\n"
+                        .. "Contexte de l'issue (à utiliser pour rédiger la description) :\n"
+                        .. "Titre : %s\n\n"
+                        .. "Réponds uniquement avec ces deux lignes, sans explication ni texte supplémentaire.",
+                        issue.iid, issue.title)
+                else
+                    format_instruction =
+                        "Génère un message de commit en respectant exactement ce format :\n"
+                        .. "ligne 1 : message conventionnel (type: description courte en anglais)\n"
+                        .. "ligne 2 : (with codecompanion@neovim)\n\n"
+                        .. "Réponds uniquement avec ces deux lignes, sans explication ni texte supplémentaire."
+                end
+
                 require("plenary.curl").post(OLLAMA_URL .. "/api/generate", {
                     headers  = { ["Content-Type"] = "application/json" },
                     body     = vim.json.encode({
@@ -228,10 +392,7 @@ return {
                         prompt = "Voici le diff git des fichiers sélectionnés :\n\n```diff\n"
                             .. diff
                             .. "\n```\n\n"
-                            .. "Génère un message de commit en respectant exactement ce format :\n"
-                            .. "ligne 1 : message conventionnel (type: description courte en anglais)\n"
-                            .. "ligne 2 : (with codecompanion@neovim)\n\n"
-                            .. "Réponds uniquement avec ces deux lignes, sans explication ni texte supplémentaire.",
+                            .. format_instruction,
                         stream = false,
                     }),
                     callback = function(response)

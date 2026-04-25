@@ -540,3 +540,262 @@ if [ "${1:-}" = "cluster_oar" ]; then
     echo "║  démarrent le cluster automatiquement si besoin. ║"
     echo "╚══════════════════════════════════════════════════╝"
 fi
+
+# =============================================================================
+# GITLAB (optionnel : ./install.sh gitlab)
+# Configure le workflow IA autour des issues GitLab (gitlab.lua)
+#
+# Pré-requis : .ai-enabled (cible 'ia' lancée d'abord)
+# Détecte automatiquement si .cluster-oar-enabled est posé pour proposer
+# le mode cluster ou local.
+# =============================================================================
+if [ "${1:-}" = "gitlab" ]; then
+
+    echo ""
+    echo "=== Configuration du workflow IA pour les issues GitLab ==="
+
+    # -------------------------------------------------------------------------
+    # 1. Pré-requis : la cible 'ia' doit avoir été lancée
+    # -------------------------------------------------------------------------
+    if [ ! -f "${DIR_VIM_GIT}/.ai-enabled" ]; then
+        echo ""
+        echo "ERREUR : la cible 'ia' doit être lancée d'abord."
+        echo "  ./install.sh ia"
+        echo ""
+        echo "  La cible 'gitlab' s'appuie sur CodeCompanion configuré par 'ia'."
+        exit 1
+    fi
+    echo "  ✓ Pré-requis 'ia' OK"
+
+    # -------------------------------------------------------------------------
+    # 2. Choix du mode (cluster / local)
+    # -------------------------------------------------------------------------
+    MODE=""
+    if [ -f "${DIR_VIM_GIT}/.cluster-oar-enabled" ]; then
+        echo ""
+        echo "Mode cluster OAR détecté (.cluster-oar-enabled présent)."
+        echo ""
+        echo "  [c] cluster : utilise le modèle fixé par cluster_oar_node.sh"
+        echo "                (recommandé si tu utilises systématiquement le cluster)"
+        echo "  [l] local   : choisir parmi les modèles présents sur Ollama hôte KVM"
+        echo "                (192.168.122.1:11434)"
+        echo ""
+        while true; do
+            read -rp "Mode [c/l] (défaut: c) : " mode_choice
+            mode_choice="${mode_choice:-c}"
+            case "$mode_choice" in
+                c|C) MODE="cluster"; break ;;
+                l|L) MODE="local";   break ;;
+                *) echo "  → Réponse invalide. Tape 'c' ou 'l'." ;;
+            esac
+        done
+    else
+        MODE="local"
+    fi
+    echo ""
+    echo "→ Mode sélectionné : ${MODE}"
+
+    # -------------------------------------------------------------------------
+    # 3. Configuration des modèles
+    # -------------------------------------------------------------------------
+    if [ "$MODE" = "cluster" ]; then
+        # ---------- Mode cluster : modèle fixé par cluster_oar_node.sh -----
+        # On extrait CHAT_MODEL depuis le script de nœud (single source of truth)
+        CLUSTER_MODEL=$(grep '^CHAT_MODEL=' "${DIR_VIM_GIT}/cluster_oar_node.sh" \
+                         | head -1 | cut -d'"' -f2)
+        if [ -z "$CLUSTER_MODEL" ]; then
+            echo "ERREUR : impossible de lire CHAT_MODEL depuis cluster_oar_node.sh"
+            exit 1
+        fi
+
+        echo ""
+        echo "  Modèle cluster (depuis cluster_oar_node.sh) : ${CLUSTER_MODEL}"
+        echo "  → utilisé pour TOUS les rôles (coder + chat) — cf. choix A(a)"
+        echo "${CLUSTER_MODEL}" > "${DIR_VIM_GIT}/.ai-model"
+
+        # Pas de .ai-model-chat → ai.lua fera le fallback sur .ai-model
+        rm -f "${DIR_VIM_GIT}/.ai-model-chat"
+        echo "  ✓ .ai-model       = ${CLUSTER_MODEL}"
+        echo "  ✓ .ai-model-chat  (absent → fallback sur .ai-model)"
+
+        echo ""
+        echo "  ℹ Le pull du modèle se fait au démarrage du nœud OAR"
+        echo "    (cluster_oar_node.sh, déclenché par <leader>aC dans nvim)"
+
+        SELECTED_CODER="$CLUSTER_MODEL"
+        SELECTED_CHAT="$CLUSTER_MODEL"
+
+    else
+        # ---------- Mode local : 2 menus interactifs -----------------------
+        OLLAMA_HOST="192.168.122.1"
+        OLLAMA_PORT="11434"
+        OLLAMA_BASE_URL="http://${OLLAMA_HOST}:${OLLAMA_PORT}"
+
+        echo ""
+        echo "→ Connexion à Ollama (${OLLAMA_BASE_URL})..."
+        if ! curl -sf --max-time 5 "${OLLAMA_BASE_URL}/api/tags" \
+                > /tmp/ollama_models.json 2>/dev/null; then
+            echo ""
+            echo "ERREUR : impossible de joindre Ollama sur ${OLLAMA_BASE_URL}"
+            echo "  Lance ./install.sh ia d'abord (qui vérifie tout le setup Ollama)."
+            exit 1
+        fi
+        echo "  ✓ Ollama accessible"
+
+        # Lister les modèles disponibles
+        mapfile -t MODELS < <(python3 - <<'PYEOF'
+import json, sys
+try:
+    with open('/tmp/ollama_models.json') as f:
+        data = json.load(f)
+    for m in data.get('models', []):
+        print(m['name'])
+except Exception:
+    sys.exit(1)
+PYEOF
+)
+
+        if [ ${#MODELS[@]} -eq 0 ]; then
+            echo ""
+            echo "ERREUR : aucun modèle dans Ollama."
+            echo "  docker exec ollama ollama pull qwen2.5-coder:14b"
+            exit 1
+        fi
+
+        # Helper : affiche le menu, lit un choix valide entre 1 et N (et
+        # éventuellement 0 si allow_zero=1) ; renvoie le résultat dans la
+        # variable globale __MENU_RESULT (entier choisi).
+        show_menu_and_pick() {
+            local title="$1"; shift
+            local allow_zero="$1"; shift
+            local options=("$@")
+            local n=${#options[@]}
+
+            echo ""
+            echo "┌─────────────────────────────────────────┐"
+            printf "│  %-39s│\n" "${title}"
+            echo "├─────────────────────────────────────────┤"
+            if [ "$allow_zero" = "1" ]; then
+                printf "│   0. %-35s│\n" "(identique au coder)"
+            fi
+            local i
+            for i in "${!options[@]}"; do
+                printf "│  %2d. %-35s│\n" "$((i+1))" "${options[$i]}"
+            done
+            echo "└─────────────────────────────────────────┘"
+            echo ""
+
+            local min=1
+            [ "$allow_zero" = "1" ] && min=0
+
+            while true; do
+                read -rp "Choix [${min}-${n}] : " choice
+                if [[ "$choice" =~ ^[0-9]+$ ]] \
+                    && [ "$choice" -ge "$min" ] \
+                    && [ "$choice" -le "$n" ]; then
+                    __MENU_RESULT="$choice"
+                    return 0
+                fi
+                echo "  → Saisie invalide. Entre un numéro entre ${min} et ${n}."
+            done
+        }
+
+        # ---- Menu 1 : modèle CODER ------------------------------------
+        show_menu_and_pick "Modèle CODER (commit / inline / agent)" 0 "${MODELS[@]}"
+        SELECTED_CODER="${MODELS[$((__MENU_RESULT-1))]}"
+
+        # ---- Menu 2 : modèle CHAT (option 0 = identique au coder) -----
+        show_menu_and_pick "Modèle CHAT (clarification / dialogue)" 1 "${MODELS[@]}"
+        if [ "$__MENU_RESULT" = "0" ]; then
+            SELECTED_CHAT="$SELECTED_CODER"
+            CHAT_FALLBACK=1
+        else
+            SELECTED_CHAT="${MODELS[$((__MENU_RESULT-1))]}"
+            CHAT_FALLBACK=0
+        fi
+
+        # ---- Persistance ------------------------------------------------
+        echo "${SELECTED_CODER}" > "${DIR_VIM_GIT}/.ai-model"
+        if [ "$CHAT_FALLBACK" = "1" ]; then
+            # Identique au coder → pas de .ai-model-chat (fallback transparent)
+            rm -f "${DIR_VIM_GIT}/.ai-model-chat"
+        else
+            echo "${SELECTED_CHAT}" > "${DIR_VIM_GIT}/.ai-model-chat"
+        fi
+
+        echo ""
+        echo "  ✓ .ai-model       = ${SELECTED_CODER}"
+        if [ "$CHAT_FALLBACK" = "1" ]; then
+            echo "  ✓ .ai-model-chat  (absent → fallback sur .ai-model)"
+        else
+            echo "  ✓ .ai-model-chat  = ${SELECTED_CHAT}"
+        fi
+    fi
+
+    # -------------------------------------------------------------------------
+    # 4. Flag d'activation
+    # -------------------------------------------------------------------------
+    touch "${DIR_VIM_GIT}/.gitlab-enabled"
+    echo ""
+    echo "  ✓ .gitlab-enabled posé"
+
+    # -------------------------------------------------------------------------
+    # 5. Reload Neovim plugins (par cohérence avec les autres cibles)
+    # -------------------------------------------------------------------------
+    echo ""
+    echo "→ Mise à jour des plugins Neovim..."
+    nvim --headless "+Lazy! sync" +qa 2>/dev/null || true
+    echo "  ✓ Plugins synchronisés"
+
+    # -------------------------------------------------------------------------
+    # 6. Aide à la configuration du token GitLab (informationnel uniquement)
+    # -------------------------------------------------------------------------
+    echo ""
+    echo "→ Authentification GitLab :"
+    if [ -n "${GITLAB_TOKEN:-}" ]; then
+        echo "  ✓ Variable GITLAB_TOKEN détectée dans l'environnement"
+    else
+        echo "  ⚠ Aucun GITLAB_TOKEN dans l'environnement."
+        echo ""
+        echo "  Deux options pour authentifier :"
+        echo ""
+        echo "    1) Variable d'env globale (~/.bashrc) :"
+        echo "         export GITLAB_TOKEN=\"glpat-xxxxxxxxxxxx\""
+        echo "         export GITLAB_URL=\"https://gitlab.example.com\"  # si self-hosted"
+        echo ""
+        echo "    2) Fichier .gitlab.nvim à la racine du projet"
+        echo "       (à AJOUTER DANS .gitignore !) :"
+        echo "         token=glpat-xxxxxxxxxxxx"
+        echo "         gitlab_url=https://gitlab.example.com"
+        echo ""
+        echo "  Crée un Personal Access Token sur :"
+        echo "    <ton-instance>/-/user_settings/personal_access_tokens"
+        echo "  Scopes requis : api (lecture+écriture issues)"
+    fi
+
+    # -------------------------------------------------------------------------
+    # Résumé
+    # -------------------------------------------------------------------------
+    echo ""
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║       Workflow GitLab Issues activé              ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    printf "║  %-49s║\n" "Mode      : ${MODE}"
+    printf "║  %-49s║\n" "Coder     : ${SELECTED_CODER}"
+    if [ "${CHAT_FALLBACK:-1}" = "1" ]; then
+        printf "║  %-49s║\n" "Chat      : (= coder)"
+    else
+        printf "║  %-49s║\n" "Chat      : ${SELECTED_CHAT}"
+    fi
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Dans Neovim :                                   ║"
+    echo "║    <Space>gi  — choisir une issue                ║"
+    echo "║    <Space>gw  — démarrer le workflow IA          ║"
+    echo "║    <Space>gC  — effacer l'issue courante         ║"
+    echo "║    <Space>ag  — générer le commit (Fix #N: …)    ║"
+    echo "╠══════════════════════════════════════════════════╣"
+    echo "║  Reconfigurer : ./install.sh gitlab              ║"
+    echo "╚══════════════════════════════════════════════════╝"
+    echo ""
+
+fi

@@ -181,6 +181,12 @@ if uv.fs_stat(vimdir .. "/.rag-enabled") then
     vim.list_extend(plugins, dofile(vimdir .. "/rag.lua"))
 end
 
+-- Chargement conditionnel de l'intégration GitLab issues
+-- (nécessite .ai-enabled — gitlab.lua dépend de CodeCompanion)
+if uv.fs_stat(vimdir .. "/.gitlab-enabled") and uv.fs_stat(vimdir .. "/.ai-enabled") then
+    vim.list_extend(plugins, dofile(vimdir .. "/gitlab.lua"))
+end
+
 -- Cluster OAR (Abaca/Grid5000) — chargé après ai.lua et rag.lua pour pouvoir
 -- intercepter leurs keymaps
 if uv.fs_stat(vimdir .. "/.cluster-oar-enabled") then
