@@ -146,7 +146,7 @@ local function ssh_run(conf, cmd, cb)
         "-o", "ConnectTimeout=15",
         -- "-J", conf.login .. "@" .. conf.gateway,
         conf.login .. "@" .. frontend_fqdn(conf),
-        cmd,
+        cmd .. " 2>&1",
     }, {
         on_stdout = function(_, data)
             for _, l in ipairs(data or {}) do
@@ -287,7 +287,7 @@ local function poll_until_running(conf, job_id, on_running)
         sp_set(("Job %s en attente… (%d/40)"):format(job_id, tries))
         ssh_run(conf, "oarstat -j " .. job_id .. " -f", function(_, out)
             local st  = out:match("state = (%w+)")
-            local nd  = out:match("assigned_network_address = (%S+)")
+            local nd  = out:match("assigned_hostnames = (%S+)")
             if st == "Running" and nd and nd ~= "" then
                 S.node = nd; save_state()
                 sp_set("Nœud alloué : " .. nd)
@@ -308,7 +308,7 @@ local function check_job_alive(conf, job_id, cb)
     ssh_run(conf, "oarstat -j " .. job_id .. " -f 2>/dev/null; echo __END__",
         function(_, out)
             local st = out:match("state = (%w+)")
-            local nd = out:match("assigned_network_address = (%S+)")
+            local nd = out:match("assigned_hostnames = (%S+)")
             cb(st == "Running" and nd ~= nil, nd)
         end)
 end
