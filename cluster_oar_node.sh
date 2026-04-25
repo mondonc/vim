@@ -15,13 +15,16 @@ CHAT_MODEL="qwen2.5-coder:32b"
 EMBED_MODEL="mxbai-embed-large"
 
 OLLAMA_BIN="$HOME/bin/ollama"
-SCRATCH="/scratch/$(whoami)/ollama"
+OLLAMA_LIB="$HOME/lib/ollama"         # libs CUDA bundled avec le tgz ollama
+SCRATCH="$HOME/scratch/$(whoami)/ollama"
 LOG="$SCRATCH/logs/ollama.log"
 
-mkdir -p "$HOME/bin" "$SCRATCH/models" "$SCRATCH/logs"
+mkdir -p "$HOME/bin" "$HOME/lib" "$SCRATCH/models" "$SCRATCH/logs"
 
 export OLLAMA_MODELS="$SCRATCH/models"
 export PATH="$PATH:$HOME/bin"
+# Librairies CUDA/ROCm bundled extraites depuis le tgz ollama
+export LD_LIBRARY_PATH="$OLLAMA_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 # --- Infos nœud --------------------------------------------------------------
 echo "[$(date -Iseconds)] =========================================="
@@ -37,12 +40,27 @@ nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null
 
 # --- Installer ollama si absent ----------------------------------------------
 if [ ! -x "$OLLAMA_BIN" ]; then
-    echo "[$(date -Iseconds)] Téléchargement du binaire ollama…"
-    curl -fsSL \
-        https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64 \
-        -o "$OLLAMA_BIN"
+    echo "[$(date -Iseconds)] Téléchargement d'ollama (tgz officiel)…"
+
+    # Détection de l'architecture (amd64 sur les nœuds Abaca, arm64 sinon)
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64)  OLLAMA_ARCH="amd64" ;;
+        aarch64) OLLAMA_ARCH="arm64" ;;
+        *)
+            echo "[$(date -Iseconds)] ERREUR : architecture non supportée : $ARCH"
+            exit 1
+            ;;
+    esac
+
+    # Le tgz extrait dans $HOME :
+    #   $HOME/bin/ollama        ← binaire
+    #   $HOME/lib/ollama/       ← libs CUDA/ROCm bundled
+    curl -fsSL "https://ollama.com/download/ollama-linux-${OLLAMA_ARCH}.tgz" \
+        | tar -C "$HOME" -xz
+
     chmod +x "$OLLAMA_BIN"
-    echo "[$(date -Iseconds)] ✓ Ollama installé"
+    echo "[$(date -Iseconds)] ✓ Ollama installé : $("$OLLAMA_BIN" --version 2>/dev/null || echo '(version inconnue)')"
 fi
 
 # --- Lancer ollama serve (utilise automatiquement tous les GPUs) -------------
