@@ -242,9 +242,23 @@ vim.api.nvim_create_autocmd("QuitPre", {
     end,
 })
 
+
 -- =============================================================================
 -- LSP natif (vim.lsp.config, Neovim 0.11+)
 -- =============================================================================
+
+-- Lit le venv depuis un fichier .venv à la racine du projet
+local function get_python_path(root_dir)
+    local venv_file = io.open(root_dir .. "/.venv", "r")
+    if venv_file then
+        local path = venv_file:read("*l")
+        venv_file:close()
+        if path and path ~= "" then
+            return path .. "/bin/python"
+        end
+    end
+    return vim.fn.exepath("python3")
+end
 
 if vim.lsp.config then
     vim.lsp.config("pyright", {
@@ -257,10 +271,15 @@ else
     vim.api.nvim_create_autocmd("FileType", {
         pattern = { "python" },
         callback = function()
+            local root = vim.fs.root(0, { "pyproject.toml", "setup.py", "setup.cfg", ".git" })
+                        or vim.fn.getcwd()
             vim.lsp.start({
                 name = "pyright",
                 cmd = { "pyright-langserver", "--stdio" },
-                root_dir = vim.fs.root(0, { "pyproject.toml", "setup.py", "setup.cfg", ".git" }),
+                root_dir = root,
+                settings = {
+                    python = { pythonPath = get_python_path(root) }
+                }
             })
         end,
     })
@@ -271,6 +290,19 @@ vim.api.nvim_create_autocmd("LspAttach", {
     callback = function(ev)
         local opts = { buffer = ev.buf }
         vim.keymap.set("n", "gd", vim.lsp.buf.definition, opts)
+        vim.keymap.set("n", "gD", function()
+        vim.lsp.buf.definition({
+            on_list = function(options)
+            if not options.items or #options.items == 0 then return end
+            local item = options.items[1]
+            local fname = item.filename or vim.uri_to_fname(item.uri)
+            local lnum = item.lnum or 1
+            local col = (item.col or 1) - 1
+            vim.cmd("tabedit " .. vim.fn.fnameescape(fname))
+            vim.api.nvim_win_set_cursor(0, { lnum, col })
+            end,
+        })
+        end, opts)
         vim.keymap.set("n", "K", vim.lsp.buf.hover, opts)
         vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, opts)
         vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
