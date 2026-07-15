@@ -65,6 +65,11 @@ pipx ensurepath
 echo "=== Installation des linters pour Vim/syntastic ==="
 sudo apt-get -y install pyflakes3 flake8 ripgrep
 
+# --- Marqueur d'installation ---
+# Lu par init.lua au démarrage : si HEAD a avancé (git pull) au-delà de ce
+# marqueur, la config se réinstalle toute seule en tâche de fond.
+git -C "$DIR_VIM_GIT" rev-parse HEAD > "$DIR_VIM_GIT/.installed-rev" 2>/dev/null || true
+
 echo ""
 echo "=== Terminé ==="
 echo "  Vim  : lance vim, tout est prêt"

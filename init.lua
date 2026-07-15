@@ -7,6 +7,35 @@ vim.cmd("source " .. vim.fn.fnamemodify(vim.fn.resolve(vim.fn.expand("<sfile>:p"
 
 vim.g.mapleader = " "
 
+-- =============================================================================
+-- Auto-réinstallation : si ~/.vim a avancé (git pull — par l'upgrade cloison
+-- ou à la main, sur n'importe quelle machine) au-delà du dernier install.sh
+-- (marqueur .installed-rev), on relance install.sh en tâche de fond.
+-- VIM_INSTALLING coupe la récursion (install.sh lance nvim en headless).
+-- =============================================================================
+if not vim.env.VIM_INSTALLING then
+    local vimdir = vim.fn.expand("~/.vim")
+    local head = vim.fn.systemlist({ "git", "-C", vimdir, "rev-parse", "HEAD" })[1]
+    if vim.v.shell_error == 0 and head and head ~= "" then
+        local f = io.open(vimdir .. "/.installed-rev")
+        local installed = f and f:read("*l") or nil
+        if f then f:close() end
+        if head ~= installed then
+            vim.notify("Config vim mise à jour → réinstallation en arrière-plan…", vim.log.levels.WARN)
+            vim.fn.jobstart({ "bash", vimdir .. "/install.sh" }, {
+                env = { VIM_INSTALLING = "1" },
+                on_exit = function(_, code)
+                    local msg = (code == 0) and "Config vim réinstallée — relance nvim"
+                        or "Réinstallation échouée : lancer ~/.vim/install.sh à la main"
+                    vim.schedule(function()
+                        vim.notify(msg, (code == 0) and vim.log.levels.INFO or vim.log.levels.ERROR)
+                    end)
+                end,
+            })
+        end
+    end
+end
+
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 local uv = vim.uv or vim.loop

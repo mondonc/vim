@@ -11,6 +11,9 @@ undodir-nvim/
 *.swo
 *~
 
+# Marqueur d'installation (local, écrit par install.sh — lu par init.lua)
+.installed-rev
+
 # AI flag (local only, created by ./install.sh ia)
 .ai-enabled
 .ai-model
