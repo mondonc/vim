@@ -1,6 +1,6 @@
 # vim-config
 
-A unified Vim 8+ / Neovim configuration for Python/Django development. Works with both editors from the same repository, sharing common settings while leveraging modern Neovim features (LSP, Treesitter, Telescope) when available.
+An unified Vim 8+ / Neovim configuration for Python/Django development. Works with both editors from the same repository, sharing common settings while leveraging modern Neovim features (LSP, Treesitter, Telescope) when available.
 
 ## Structure
 
