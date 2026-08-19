@@ -271,8 +271,12 @@ else
     vim.api.nvim_create_autocmd("FileType", {
         pattern = { "python" },
         callback = function()
-            local root = vim.fs.root(0, { "pyproject.toml", "setup.py", "setup.cfg", ".git" })
-                        or vim.fn.getcwd()
+            local markers = { "pyproject.toml", "setup.py", "setup.cfg", ".git" }
+            local root = (vim.fs.root and vim.fs.root(0, markers))
+                or (function()
+                    local found = vim.fs.find(markers, { upward = true })
+                    return #found > 0 and vim.fs.dirname(found[1]) or vim.fn.getcwd()
+                end)()
             vim.lsp.start({
                 name = "pyright",
                 cmd = { "pyright-langserver", "--stdio" },
