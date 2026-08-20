@@ -139,13 +139,13 @@ local plugins = {
             lint.linters_by_ft = {
                 python = { "ruff" },
             }
-            -- On ignore I001 (tri/format des imports) : ruff la remonte partout
-            -- mais le tri est laissé à la main. On s'appuie sur les args par
-            -- défaut de nvim-lint et on insère --ignore I001 après "check".
+            -- On ignore I001 (tri/format des imports, tri laissé à la main) et
+            -- BLE001 (except: sans type). On s'appuie sur les args par défaut
+            -- de nvim-lint et on insère --ignore après "check".
             local ruff = vim.deepcopy(lint.linters.ruff)
             local args = vim.deepcopy(ruff.args)
             table.insert(args, 2, "--ignore")
-            table.insert(args, 3, "I001")
+            table.insert(args, 3, "I001,BLE001")
             ruff.args = args
             lint.linters.ruff = ruff
             vim.api.nvim_create_autocmd({ "BufWritePost", "BufReadPost" }, {
