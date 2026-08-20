@@ -33,6 +33,9 @@ echo "=== Lien ~/.config/nvim/init.lua ==="
 mkdir -p "$HOME/.config/nvim"
 ln -sfn "$DIR_VIM_GIT/init.lua" "$HOME/.config/nvim/init.lua"
 
+echo "=== Lien ~/.config/nvim/ginit.vim (config nvim-qt) ==="
+ln -sfn "$DIR_VIM_GIT/ginit.vim" "$HOME/.config/nvim/ginit.vim"
+
 echo "=== Installation des plugins Neovim (lazy.nvim) ==="
 nvim --headless "+Lazy! sync" +qa
 
